@@ -2,10 +2,13 @@ package com.djsebas.chatpro
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.DownloadManager
 import android.content.Intent
+import android.content.Context
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.view.Gravity
 import android.widget.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -206,8 +209,8 @@ class MainActivity : Activity() {
                 val obj=args.firstOrNull() as? JSONObject?:return@on
                 runOnUiThread{renderConversationMessage(obj)}
             }
-            socket?.connect()
             socket?.once(Socket.EVENT_CONNECT){socket?.emit("conversation:join",JSONObject().put("conversationId",currentConversation))}
+            socket?.connect()
         }catch(e:Exception){header.text="Chat en línea no disponible: ${e.message}"}
     }
     private fun sendMessage() {
@@ -223,7 +226,25 @@ class MainActivity : Activity() {
         val text=obj.optString("text")
         if(text.isNotBlank())content.addView(note("$who: $text"))
         val media=obj.optJSONObject("media")
-        if(media!=null)content.addView(action("📎  ${media.optString("name","Archivo")}"){toast("El archivo se descarga desde el chat cuando el servidor autoriza la sesión.")})
+        if(media!=null)content.addView(action("⬇  Descargar: ${media.optString("name","Archivo")}"){downloadMedia(media)})
+    }
+    private fun downloadMedia(media:JSONObject) {
+        val path=media.optString("downloadPath")
+        if(!path.startsWith("/api/uploads/")){toast("Este archivo no tiene una ruta válida");return}
+        try {
+            val safeName=media.optString("name","archivo").substringAfterLast('/').replace(Regex("[^A-Za-z0-9._ -]"),"_").take(120).ifBlank{"archivo"}
+            val request=DownloadManager.Request(Uri.parse(baseUrl+path))
+                .addRequestHeader("Authorization","Bearer "+token)
+                .setTitle(safeName)
+                .setDescription("Descargando archivo de CHAT PRO")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,"CHAT PRO/$safeName")
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(false)
+            val manager=getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            manager.enqueue(request)
+            toast("Descarga iniciada. Se guardará en Descargas/CHAT PRO.")
+        } catch(e:Exception) { toast("No se pudo iniciar la descarga: ${e.message}") }
     }
     private fun showStatuses() {
         content.removeAllViews();header.text="Los estados desaparecen después de 24 horas"
