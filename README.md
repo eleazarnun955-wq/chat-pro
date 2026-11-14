@@ -5,7 +5,7 @@ Aplicación Android independiente de CHAT DJ'S VIP.
 
 ## Android
 - Aplicación independiente: `com.djsebas.chatpro.v2` (no sustituye instalaciones anteriores).
-- Versión configurada: `1.2.0` (versionCode `3`).
+- Versión configurada: `1.4.0` (versionCode `5`).
 - APK debug: GitHub Actions → **Build CHAT PRO APK** → artifact **CHAT-PRO-debug**.
 - Los archivos recibidos desde conversaciones se pueden descargar con autenticación a `Descargas/CHAT PRO`.
 
@@ -50,9 +50,10 @@ El backend incorpora una primera capa de cuentas y conversaciones:
 - Perfil básico y búsqueda de usuarios.
 - Conversaciones privadas y grupos con membresía y autorización.
 - Historial separado por conversación, con hasta 500 mensajes por conversación.
-- Socket.IO autenticado para mensajes en tiempo real.
+- Socket.IO autenticado para mensajes en tiempo real (los sockets sin sesión quedan bloqueados por defecto).
+- Conteo de mensajes sin leer y confirmación de lectura al abrir una conversación.
 - Se mantiene temporalmente la compatibilidad de la sala anterior para no romper la APK ya instalada.
 
 Rutas nuevas: `POST /api/register`, `POST /api/login`, `POST /api/logout`, `GET /api/me`, `PATCH /api/me`, `GET /api/users/search`, `GET/POST /api/conversations`, `GET /api/conversations/:id/messages` y `POST /api/conversations/:id/members`. Los endpoints de cuenta requieren `Authorization: Bearer <token>`.
 
-**Estado honesto:** la interfaz Android multiusuario ya incluye registro/inicio de sesión, búsqueda de usuarios, chats privados, grupos, estados y envío de adjuntos. La descarga autenticada de adjuntos se añadió en el último cambio. El backend aún persiste en JSON y todavía no consume las tablas Supabase existentes; falta configurar una credencial privada de servidor en Render y migrar la persistencia. También faltan notificaciones push, salas públicas/privadas completas, reacciones, confirmaciones de lectura, presencia y pruebas reales con dos teléfonos. No considerar CHAT PRO terminado hasta validar esos puntos.
+**Estado honesto:** la interfaz Android multiusuario ya incluye registro/inicio de sesión, búsqueda de usuarios, chats privados, grupos, estados y envío de adjuntos. La descarga autenticada de adjuntos, los conteos de mensajes sin leer y las confirmaciones de lectura se añadieron en esta etapa. El backend aún persiste en JSON y todavía no consume las tablas Supabase existentes; falta configurar una credencial privada de servidor en Render y migrar la persistencia. También faltan notificaciones push, salas públicas/privadas completas, reacciones, confirmaciones de lectura, presencia y pruebas reales con dos teléfonos. No considerar CHAT PRO terminado hasta validar esos puntos.
