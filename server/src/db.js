@@ -122,3 +122,9 @@ export async function downloadMedia(objectName) {
   const { data, error } = await supabase.storage.from("chat-pro-media").download(objectName);
   fail(error); return data;
 }
+
+export async function verifyConnection() {
+  const { error } = await supabase.from("profiles").select("id").limit(1);
+  fail(error);
+  return true;
+}
