@@ -136,11 +136,23 @@ class MainActivity : Activity() {
     }
     private fun showContacts() {
         content.removeAllViews();header.text="Busca usuarios para iniciar una conversación"
-        val q=field("Buscar por nombre o usuario");content.addView(q)
+        content.addView(action("＋ Crear grupo"){createGroupDialog()})\n        val q=field("Buscar por nombre o usuario");content.addView(q)
         content.addView(action("Buscar"){searchUsers(q.text.toString())})
         val result=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};content.addView(result)
         q.setOnEditorActionListener{_,_,_->searchUsers(q.text.toString(),result);true}
         searchUsers("",result)
+    }
+    private fun createGroupDialog() {
+        val title=field("Nombre del grupo")
+        val users=field("Usuarios separados por coma")
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(title);addView(users)}
+        AlertDialog.Builder(this).setTitle("Nuevo grupo").setMessage("Escribe los nombres de usuario de las personas que quieres agregar.").setView(box)
+            .setNegativeButton("Cancelar",null).setPositiveButton("Crear"){_,_->
+                val names=users.text.toString().split(",").map{it.trim().removePrefix("@")}.filter{it.matches(Regex("[a-zA-Z0-9_.-]{3,24}"))}.distinct()
+                if(names.isEmpty()){toast("Agrega al menos otro usuario");return@setPositiveButton}
+                val body=JSONObject().put("type","group").put("title",title.text.toString()).put("usernames",JSONArray(names))
+                api("POST","/api/conversations",body,{data->val conv=data.optJSONObject("conversation")?:return@api;openConversation(conv.optString("id"),conv.optString("title","Grupo"))},{header.text=it})
+            }.show()
     }
     private fun searchUsers(term:String,target:LinearLayout?=null) {
         val box=target?:content
