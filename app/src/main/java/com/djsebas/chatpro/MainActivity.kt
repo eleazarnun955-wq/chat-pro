@@ -32,6 +32,7 @@ class MainActivity : Activity() {
     private var currentConversation=""
     private var currentTitle=""
     private var uploadMode="chat"
+    private var pendingStatusCaption=""
     private var socket:Socket?=null
     private lateinit var root:LinearLayout
     private lateinit var content:LinearLayout
@@ -229,6 +230,7 @@ class MainActivity : Activity() {
         val caption=field("¿Qué quieres compartir hoy?")
         content.addView(caption)
         content.addView(action("Publicar estado de texto"){val value=caption.text.toString().trim();if(value.isNotBlank())api("POST","/api/statuses",JSONObject().put("caption",value),{toast("Estado publicado");showHome("Estados")},{header.text=it})})
+        content.addView(action("Publicar foto o video"){uploadMode="status";pendingStatusCaption=caption.text.toString().trim();val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/* video/*"};startActivityForResult(pick,44)})
         content.addView(action("Actualizar estados"){showStatuses()})
         api("GET","/api/statuses",null,{data->
             val arr=data.optJSONArray("statuses")?:JSONArray()
@@ -237,7 +239,15 @@ class MainActivity : Activity() {
                 val s=arr.optJSONObject(i)?:continue
                 val user=s.optJSONObject("user")
                 val label="${user?.optString("name")?: "Usuario"}: ${s.optString("caption")}  ·  ${s.optInt("viewedBy")} vistas"
-                content.addView(action(label){api("POST","/api/statuses/${s.optString("id")}/views",JSONObject(),{toast("Vista registrada")},{toast(it)})})
+                val ownerId=user?.optString("id","")?: ""
+                content.addView(action(label){
+                    if(ownerId==me.optString("id")) api("GET","/api/statuses/${s.optString("id")}/views",null,{v->
+                        val viewers=v.optJSONArray("viewers")?:JSONArray()
+                        val names=(0 until viewers.length()).mapNotNull{viewers.optJSONObject(it)?.optJSONObject("user")?.optString("name")}.joinToString("\n")
+                        AlertDialog.Builder(this).setTitle("Personas que vieron el estado").setMessage(if(names.isBlank())"Todavía nadie lo ha visto." else names).setPositiveButton("Cerrar",null).show()
+                    },{toast(it)})
+                    else api("POST","/api/statuses/${s.optString("id")}/views",JSONObject(),{toast("Vista registrada")},{toast(it)})
+                })
             }
         },{header.text=it})
     }
@@ -259,7 +269,7 @@ class MainActivity : Activity() {
     @Deprecated("Android compatibility")
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
         super.onActivityResult(requestCode,resultCode,data)
-        if(requestCode!=42||resultCode!=RESULT_OK)return
+        if(requestCode !in listOf(42,43,44)||resultCode!=RESULT_OK)return
         val uri=data?.data?:return
         val name=uri.lastPathSegment?.substringAfterLast('/')?:"archivo"
         val mime=contentResolver.getType(uri)?:"application/octet-stream"
@@ -274,9 +284,23 @@ class MainActivity : Activity() {
                     val data=JSONObject(res.body?.string()?: "{}");if(!res.isSuccessful)throw Exception(data.optString("error","Error de subida"))
                     val media=JSONObject().put("name",data.optString("name",name)).put("mimeType",data.optString("mimeType",mime)).put("size",data.optLong("size")).put("downloadPath",data.optString("downloadPath"))
                     runOnUiThread{
-                        if(currentConversation.isNotBlank())socket?.emit("conversation:send",JSONObject().put("text","").put("media",media))
-                        else toast("Archivo cargado")
-                        header.text="Archivo cargado: $name"
+                        when(requestCode){
+                            43 -> api("PATCH","/api/me",JSONObject().put("avatarUrl",baseUrl+data.optString("downloadPath")),{profile->
+                                me=profile.optJSONObject("user")?:me
+                                toast("Foto de perfil actualizada")
+                                showHome("Perfil")
+                            },{header.text=it})
+                            44 -> api("POST","/api/statuses",JSONObject().put("caption",pendingStatusCaption).put("media",media),{
+                                pendingStatusCaption=""
+                                toast("Estado multimedia publicado")
+                                showHome("Estados")
+                            },{header.text=it})
+                            else -> {
+                                if(currentConversation.isNotBlank())socket?.emit("conversation:send",JSONObject().put("text","").put("media",media))
+                                else toast("Archivo cargado")
+                                header.text="Archivo cargado: $name"
+                            }
+                        }
                     }
                 };tmp.delete()
             }catch(e:Exception){runOnUiThread{header.text=e.message?:"Error de subida"}}
