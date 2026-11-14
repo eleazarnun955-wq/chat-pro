@@ -166,9 +166,9 @@ class MainActivity : Activity() {
 
     private fun renderMessage(obj:JSONObject) {
         val who=obj.optString("displayName","Usuario")
-        val text=obj.optString("text","")
+        val messageText=obj.optString("text","")
         val media=obj.optJSONObject("media")
-        if(text.isNotBlank()) addBubble("$who: $text",who==displayName)
+        if(messageText.isNotBlank()) addBubble("$who: $messageText",who==displayName)
         if(media!=null) {
             val name=media.optString("name","Archivo")
             val path=media.optString("downloadPath","")
