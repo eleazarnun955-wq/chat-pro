@@ -19,7 +19,7 @@ const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(nex
 app.use(cors({origin:process.env.CORS_ORIGIN?.split(",")||"*"}));
 app.use(express.json({limit:"2mb"}));
 const auth=asyncRoute(async(req,res,next)=>{
- const token=(req.headers.authorization||"").replace(/^Bearer\\s+/i,"");
+ const token=(req.headers.authorization||"").replace(/^Bearer\s+/i,"");
  const user=token?await db.getSessionUser(token):null;
  if(!user)return res.status(401).json({error:"Inicia sesión para continuar"});
  req.user=user;req.token=token;next();
@@ -67,6 +67,11 @@ app.post("/api/conversations",auth,asyncRoute(async(q,r)=>{
  const conversation=await db.createConversation({id:randomUUID(),type:group?"group":"direct",title:clean(q.body?.title,60)||(group?"Nuevo grupo":""),members,createdBy:q.user.id,visibility,description:clean(q.body?.description,500)});
  r.status(201).json({conversation});
 }));
+app.post("/api/conversations/:id/read",auth,asyncRoute(async(q,r)=>{
+ if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
+ await db.markConversationRead(q.params.id,q.user.id);
+ r.json({ok:true,readAt:new Date().toISOString()});
+}));
 app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
  if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
  r.json({messages:await db.listMessages(q.params.id)});
@@ -112,7 +117,7 @@ app.delete("/api/statuses/:id",auth,asyncRoute(async(q,r)=>{
 const storage=multer.diskStorage({destination:(_q,_f,cb)=>cb(null,uploadDir),filename:(_q,f,cb)=>cb(null,randomUUID()+path.extname(f.originalname).toLowerCase())});
 app.post("/api/uploads",auth,multer({storage,limits:{fileSize:MAX_UPLOAD_BYTES,files:1},fileFilter:(_q,f,cb)=>{
  const ext=path.extname(f.originalname).toLowerCase();
- cb(([".mp3",".wav",".m4a",".flac"].includes(ext)||/^(image|video|application)\\//.test(f.mimetype))?null:new Error("Tipo de archivo no permitido"));
+ cb(([".mp3",".wav",".m4a",".flac"].includes(ext)||/^(image|video|application)\//.test(f.mimetype))?null:new Error("Tipo de archivo no permitido"));
 }}).single("file"),async(q,r)=>{
  try{
   if(!q.file)return r.status(400).json({error:"Falta el archivo"});
@@ -143,7 +148,7 @@ app.get("/api/uploads/:filename",auth,asyncRoute(async(q,r)=>{
 const io=new Server(server,{cors:{origin:process.env.CORS_ORIGIN?.split(",")||"*",methods:["GET","POST"]},maxHttpBufferSize:1e6});
 io.use(async(socket,next)=>{
  try{const token=socket.handshake.auth?.token,user=token?await db.getSessionUser(token):null;
-  if(!user){if(process.env.ALLOW_LEGACY_ROOMS!=="false")return next();return next(new Error("AUTH_REQUIRED"))}
+  if(!user){if(process.env.ALLOW_LEGACY_ROOMS==="true")return next();return next(new Error("AUTH_REQUIRED"))}
   socket.data.user=user;next();
  }catch(e){next(e)}
 });
