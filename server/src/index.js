@@ -72,7 +72,33 @@ app.delete("/api/statuses/:id",auth,(q,r)=>{
 });
 
 app.post("/api/uploads",auth,multer({storage:multer.diskStorage({destination:(_q,_f,cb)=>cb(null,uploadDir),filename:(_q,f,cb)=>cb(null,randomUUID()+path.extname(f.originalname).toLowerCase())}),limits:{fileSize:MAX_UPLOAD_BYTES,files:1},fileFilter:(_q,f,cb)=>{const ext=path.extname(f.originalname).toLowerCase();cb(([".mp3",".wav",".m4a",".flac"].includes(ext)||/^(image|video|application)\//.test(f.mimetype))?null:new Error("Tipo de archivo no permitido"),true)}}).single("file"),(q,r)=>{if(!q.file)return r.status(400).json({error:"Falta el archivo"});r.status(201).json({id:path.basename(q.file.filename,path.extname(q.file.filename)),name:q.file.originalname,size:q.file.size,mimeType:q.file.mimetype,downloadPath:"/api/uploads/"+encodeURIComponent(q.file.filename)})});
-app.get("/api/uploads/:filename",auth,(q,r)=>{const name=path.basename(q.params.filename),full=path.join(uploadDir,name);if(!fs.existsSync(full))return r.sendStatus(404);r.download(full)});
+function canReadUpload(uid,name){
+ const encoded=encodeURIComponent(name),plain="/api/uploads/"+name,escaped="/api/uploads/"+encoded;
+ // Profile photos are visible only to authenticated app users.
+ if(Object.values(users).some(u=>typeof u.avatarUrl==="string"&&(u.avatarUrl.endsWith(plain)||u.avatarUrl.endsWith(escaped))))return true;
+ // Conversation attachments are visible only to members of that conversation.
+ for(const conv of Object.values(conversations)){
+  if(!member(conv,uid))continue;
+  for(const msg of messages[conv.id]||[]){
+   const p=msg.media?.downloadPath;
+   if(p===plain||p===escaped)return true;
+  }
+ }
+ // Active statuses are shown in the authenticated status feed.
+ const now=Date.now();
+ for(const s of Object.values(statuses)){
+  if(new Date(s.expiresAt).getTime()<=now)continue;
+  const p=s.media?.downloadPath;
+  if(p===plain||p===escaped)return true;
+ }
+ return false;
+}
+app.get("/api/uploads/:filename",auth,(q,r)=>{
+ const name=path.basename(q.params.filename),full=path.join(uploadDir,name);
+ if(!fs.existsSync(full))return r.sendStatus(404);
+ if(!canReadUpload(q.user.id,name))return r.sendStatus(403);
+ r.download(full);
+});
 const io=new Server(server,{cors:{origin:process.env.CORS_ORIGIN?.split(",")||"*",methods:["GET","POST"]},maxHttpBufferSize:1e6});
 io.use((socket,next)=>{const token=socket.handshake.auth?.token;const uid=sessions[token];if(uid&&users[uid]){socket.data.user=users[uid];return next()}if(process.env.ALLOW_LEGACY_ROOMS!=="false")return next();next(new Error("AUTH_REQUIRED"))});
 io.on("connection",socket=>{
