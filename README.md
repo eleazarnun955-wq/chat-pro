@@ -4,9 +4,10 @@
 Aplicación Android independiente de CHAT DJ'S VIP.
 
 ## Android
-- Paquete: `com.djsebas.chatpro`
-- Versión: 1.1.0
+- Aplicación independiente: `com.djsebas.chatpro.v2` (no sustituye instalaciones anteriores).
+- Versión configurada: `1.2.0` (versionCode `3`).
 - APK debug: GitHub Actions → **Build CHAT PRO APK** → artifact **CHAT-PRO-debug**.
+- Los archivos recibidos desde conversaciones se pueden descargar con autenticación a `Descargas/CHAT PRO`.
 
 ## Funciones conectadas en esta etapa
 - Conversación en tiempo real mediante Socket.IO.
@@ -54,4 +55,4 @@ El backend incorpora una primera capa de cuentas y conversaciones:
 
 Rutas nuevas: `POST /api/register`, `POST /api/login`, `POST /api/logout`, `GET /api/me`, `PATCH /api/me`, `GET /api/users/search`, `GET/POST /api/conversations`, `GET /api/conversations/:id/messages` y `POST /api/conversations/:id/members`. Los endpoints de cuenta requieren `Authorization: Bearer <token>`.
 
-**Estado honesto:** esta es la base de servidor; todavía falta terminar y compilar la interfaz Android multiusuario, añadir notificaciones push, reforzar controles de archivos y desplegar/verificar la nueva API en el servidor. No se debe considerar CHAT PRO 2.0 terminado hasta probar dos cuentas reales en dos teléfonos.
+**Estado honesto:** la interfaz Android multiusuario ya incluye registro/inicio de sesión, búsqueda de usuarios, chats privados, grupos, estados y envío de adjuntos. La descarga autenticada de adjuntos se añadió en el último cambio. El backend aún persiste en JSON y todavía no consume las tablas Supabase existentes; falta configurar una credencial privada de servidor en Render y migrar la persistencia. También faltan notificaciones push, salas públicas/privadas completas, reacciones, confirmaciones de lectura, presencia y pruebas reales con dos teléfonos. No considerar CHAT PRO terminado hasta validar esos puntos.
