@@ -12,7 +12,8 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody\nimport okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -29,7 +30,8 @@ class MainActivity : Activity() {
     private var token=""
     private var me=JSONObject()
     private var currentConversation=""
-    private var currentTitle=""\n    private var uploadMode="chat"
+    private var currentTitle=""
+    private var uploadMode="chat"
     private var socket:Socket?=null
     private lateinit var root:LinearLayout
     private lateinit var content:LinearLayout
@@ -136,9 +138,10 @@ class MainActivity : Activity() {
     }
     private fun showContacts() {
         content.removeAllViews();header.text="Busca usuarios para iniciar una conversación"
-        content.addView(action("＋ Crear grupo"){createGroupDialog()})\n        val q=field("Buscar por nombre o usuario");content.addView(q)
-        content.addView(action("Buscar"){searchUsers(q.text.toString())})
+        content.addView(action("＋ Crear grupo"){createGroupDialog()})
+        val q=field("Buscar por nombre o usuario");content.addView(q)
         val result=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};content.addView(result)
+        content.addView(action("Buscar"){searchUsers(q.text.toString(),result)})
         q.setOnEditorActionListener{_,_,_->searchUsers(q.text.toString(),result);true}
         searchUsers("",result)
     }
@@ -179,7 +182,7 @@ class MainActivity : Activity() {
         header.text="Cargando historial…"
         composer=field("Escribe un mensaje")
         val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        row.addView(action("＋"){chooseFile()},LinearLayout.LayoutParams(54,52))
+        row.addView(action("＋"){uploadMode="chat";chooseFile()},LinearLayout.LayoutParams(54,52))
         row.addView(composer,LinearLayout.LayoutParams(0,52,1f))
         row.addView(action("Enviar"){sendMessage()},LinearLayout.LayoutParams(85,52))
         root.addView(row)
@@ -243,7 +246,8 @@ class MainActivity : Activity() {
         val name=field(me.optString("name"));val about=field(me.optString("about"))
         val avatar=field(me.optString("avatarUrl"))
         content.addView(note("@"+me.optString("username")))
-        content.addView(name);content.addView(about);content.addView(avatar)\n        content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
+        content.addView(name);content.addView(about);content.addView(avatar)
+        content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
         content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
         content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
         content.addView(action("Cambiar servidor"){configureServer()})
