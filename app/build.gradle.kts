@@ -6,11 +6,11 @@ android {
     namespace = "com.djsebas.chatpro"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.djsebas.chatpro"
+        applicationId = "com.djsebas.chatpro.v2"
         minSdk = 23
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions {
