@@ -170,4 +170,4 @@ io.on("connection",socket=>{
  socket.on("disconnect",()=>{if(socket.data.conversationId)socket.to(socket.data.conversationId).emit("presence:left",{user:user?db.publicUser(user):null})});
 });
 app.use((err,_q,r,_next)=>{console.error(err);r.status(err instanceof multer.MulterError?413:400).json({error:err.message||"Error al procesar la solicitud"})});
-server.listen(PORT,"0.0.0.0",()=>console.log("CHAT PRO 2 server listening on "+PORT));
+db.verifyConnection().then(()=>server.listen(PORT,"0.0.0.0",()=>console.log("CHAT PRO 2 connected to Supabase and listening on "+PORT))).catch(error=>{console.error("CHAT PRO Supabase connection failed:",error);process.exit(1)});
