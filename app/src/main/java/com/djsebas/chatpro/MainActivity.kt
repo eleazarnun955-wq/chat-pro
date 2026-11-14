@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
+import android.media.MediaPlayer
+import com.bumptech.glide.Glide
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
