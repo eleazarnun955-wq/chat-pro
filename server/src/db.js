@@ -111,3 +111,14 @@ export async function getStatusViewers(statusId) {
 export async function deleteStatus(statusId,userId) {
   const { error } = await supabase.from("statuses").delete().eq("id",statusId).eq("user_id",userId); fail(error);
 }
+
+export async function uploadMedia(objectName, fileBuffer, contentType) {
+  const { data, error } = await supabase.storage.from("chat-pro-media").upload(objectName, fileBuffer, {
+    contentType: contentType || "application/octet-stream", upsert: false
+  });
+  fail(error); return data;
+}
+export async function downloadMedia(objectName) {
+  const { data, error } = await supabase.storage.from("chat-pro-media").download(objectName);
+  fail(error); return data;
+}
