@@ -46,7 +46,7 @@ class MainActivity : Activity() {
         window.statusBarColor=ink; window.navigationBarColor=ink
         val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(ink);setPadding(14,12,14,10) }
         root.addView(TextView(this).apply { text="CHAT PRO";textSize=25f;setTextColor(Color.WHITE);gravity=Gravity.CENTER;setPadding(4,8,4,2) })
-        root.addView(TextView(this).apply { text="Comparte tus mezclas terminadas";textSize=13f;setTextColor(purple);gravity=Gravity.CENTER;setPadding(4,0,4,10) })
+        root.addView(TextView(this).apply { text="Conecta, conversa y comparte archivos";textSize=13f;setTextColor(purple);gravity=Gravity.CENTER;setPadding(4,0,4,10) })
         val toolbar=LinearLayout(this).apply { gravity=Gravity.CENTER;orientation=LinearLayout.HORIZONTAL }
         toolbar.addView(Button(this).apply { text="Servidor";setOnClickListener { configure() } })
         toolbar.addView(Button(this).apply { text="Sala";setOnClickListener { configureRoom() } })
@@ -93,28 +93,71 @@ class MainActivity : Activity() {
 
     private fun connect() {
         if(serverUrl.isBlank()) { status.text="Falta configurar el servidor";return }
-        try {
-            socket?.disconnect()
-            val opts=IO.Options.builder().setReconnection(true).setReconnectionAttempts(Int.MAX_VALUE).build()
-            socket=IO.socket(serverUrl,opts)
-            socket?.on(Socket.EVENT_CONNECT) {
-                runOnUiThread { status.text="Conectado · sala: $roomId";status.setTextColor(Color.GREEN) }
-                socket?.emit("room:join",JSONObject().put("roomId",roomId).put("displayName",displayName))
+        socket?.disconnect()
+        status.text="Despertando y verificando el servidor…"
+        status.setTextColor(Color.LTGRAY)
+        Thread {
+            try {
+                val healthRequest=Request.Builder().url("$serverUrl/health").get().build()
+                http.newCall(healthRequest).execute().use { response ->
+                    if(!response.isSuccessful) throw Exception("Servidor respondió HTTP ${response.code}")
+                    val health=JSONObject(response.body?.string() ?: "{}")
+                    if(!health.optBoolean("ok",false)) throw Exception("El servidor no confirmó que está listo")
+                }
+                runOnUiThread {
+                    try {
+                        val opts=IO.Options.builder()
+                            .setReconnection(true)
+                            .setReconnectionAttempts(Int.MAX_VALUE)
+                            .setTimeout(60000)
+                            .build()
+                        val newSocket=IO.socket(serverUrl,opts)
+                        socket=newSocket
+                        newSocket.on(Socket.EVENT_CONNECT) {
+                            runOnUiThread {
+                                status.text="Conectado · sala: $roomId"
+                                status.setTextColor(Color.GREEN)
+                            }
+                            newSocket.emit("room:join",JSONObject().put("roomId",roomId).put("displayName",displayName))
+                        }
+                        newSocket.on("room:history") { args ->
+                            val arr=args.firstOrNull() as? org.json.JSONArray ?: return@on
+                            runOnUiThread {
+                                feed.removeAllViews()
+                                for(i in 0 until arr.length()) renderMessage(arr.optJSONObject(i) ?: continue)
+                            }
+                        }
+                        newSocket.on("message:new") { args ->
+                            val obj=args.firstOrNull() as? JSONObject ?: return@on
+                            runOnUiThread { renderMessage(obj) }
+                        }
+                        newSocket.on(Socket.EVENT_CONNECT_ERROR) { args ->
+                            val detail=args.firstOrNull()?.toString()?.take(140) ?: "sin detalle"
+                            runOnUiThread {
+                                status.text="Fallo de conexión: $detail"
+                                status.setTextColor(Color.RED)
+                            }
+                        }
+                        newSocket.on(Socket.EVENT_DISCONNECT) {
+                            runOnUiThread {
+                                status.text="Conexión interrumpida · intentando reconectar…"
+                                status.setTextColor(Color.YELLOW)
+                            }
+                        }
+                        newSocket.connect()
+                        status.text="Servidor disponible · conectando al chat…"
+                    } catch(e:Exception) {
+                        status.text="Error al iniciar el chat: ${e.message}"
+                        status.setTextColor(Color.RED)
+                    }
+                }
+            } catch(e:Exception) {
+                runOnUiThread {
+                    status.text="Servidor no disponible: ${e.message}. Pulsa Reconectar para intentar de nuevo."
+                    status.setTextColor(Color.RED)
+                }
             }
-            socket?.on("room:history") { args ->
-                val arr=args.firstOrNull() as? org.json.JSONArray ?: return@on
-                runOnUiThread { feed.removeAllViews();for(i in 0 until arr.length()) renderMessage(arr.optJSONObject(i) ?: continue) }
-            }
-            socket?.on("message:new") { args ->
-                val obj=args.firstOrNull() as? JSONObject ?: return@on
-                runOnUiThread { renderMessage(obj) }
-            }
-            socket?.on(Socket.EVENT_CONNECT_ERROR) {
-                runOnUiThread { status.text="No se pudo conectar. Revisa la URL y el servidor.";status.setTextColor(Color.RED) }
-            }
-            socket?.connect()
-            status.text="Conectando a $serverUrl…"
-        } catch(e:Exception) { status.text="Error: ${e.message}" }
+        }.start()
     }
 
     private fun sendText() {
