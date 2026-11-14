@@ -40,7 +40,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
-        serverUrl=prefs.getString("server_url","") ?: ""
+        serverUrl=prefs.getString("server_url","https://chat-pro-server-qhjw.onrender.com") ?: "https://chat-pro-server-qhjw.onrender.com"
         displayName=prefs.getString("display_name","DJ Sebas") ?: "DJ Sebas"
         roomId=prefs.getString("room_id","general") ?: "general"
         window.statusBarColor=ink; window.navigationBarColor=ink
