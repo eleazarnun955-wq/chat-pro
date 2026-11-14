@@ -113,9 +113,15 @@ const storage=multer.diskStorage({destination:(_q,_f,cb)=>cb(null,uploadDir),fil
 app.post("/api/uploads",auth,multer({storage,limits:{fileSize:MAX_UPLOAD_BYTES,files:1},fileFilter:(_q,f,cb)=>{
  const ext=path.extname(f.originalname).toLowerCase();
  cb(([".mp3",".wav",".m4a",".flac"].includes(ext)||/^(image|video|application)\\//.test(f.mimetype))?null:new Error("Tipo de archivo no permitido"));
-}}).single("file"),(q,r)=>{
- if(!q.file)return r.status(400).json({error:"Falta el archivo"});
- r.status(201).json({id:path.basename(q.file.filename,path.extname(q.file.filename)),name:q.file.originalname,size:q.file.size,mimeType:q.file.mimetype,downloadPath:"/api/uploads/"+encodeURIComponent(q.file.filename)});
+}}).single("file"),async(q,r)=>{
+ try{
+  if(!q.file)return r.status(400).json({error:"Falta el archivo"});
+  const objectName=randomUUID()+path.extname(q.file.originalname).toLowerCase();
+  const buffer=fs.readFileSync(q.file.path);
+  await db.uploadMedia(objectName,buffer,q.file.mimetype);
+  fs.unlinkSync(q.file.path);
+  r.status(201).json({id:path.basename(objectName,path.extname(objectName)),name:q.file.originalname,size:q.file.size,mimeType:q.file.mimetype,downloadPath:"/api/uploads/"+encodeURIComponent(objectName)});
+ }catch(e){if(q.file?.path&&fs.existsSync(q.file.path))fs.unlinkSync(q.file.path);console.error(e);r.status(500).json({error:"No se pudo guardar el archivo en Supabase Storage"})}
 });
 async function canReadUpload(uid,name){
  const plain="/api/uploads/"+name,encoded="/api/uploads/"+encodeURIComponent(name);
@@ -126,10 +132,12 @@ async function canReadUpload(uid,name){
  return (statuses||[]).some(s=>new Date(s.expires_at).getTime()>Date.now()&&(s.media_url===plain||s.media_url===encoded));
 }
 app.get("/api/uploads/:filename",auth,asyncRoute(async(q,r)=>{
- const name=path.basename(q.params.filename),full=path.join(uploadDir,name);
- if(!fs.existsSync(full))return r.sendStatus(404);
+ const name=path.basename(q.params.filename);
  if(!await canReadUpload(q.user.id,name))return r.sendStatus(403);
- r.download(full);
+ const blob=await db.downloadMedia(name);
+ r.setHeader("Content-Type",blob.type||"application/octet-stream");
+ r.setHeader("Content-Disposition","attachment; filename="+JSON.stringify(name));
+ r.send(Buffer.from(await blob.arrayBuffer()));
 }));
 
 const io=new Server(server,{cors:{origin:process.env.CORS_ORIGIN?.split(",")||"*",methods:["GET","POST"]},maxHttpBufferSize:1e6});
