@@ -4,267 +4,275 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
-import android.media.MediaPlayer
-import com.bumptech.glide.Glide
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
-import android.view.View
 import android.widget.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
-import io.socket.client.IO
-import io.socket.client.Socket
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
+import io.socket.client.IO
+import io.socket.client.Socket
 
 class MainActivity : Activity() {
-    private val ink = Color.rgb(13,16,29)
-    private val panel = Color.rgb(25,30,49)
-    private val purple = Color.rgb(154,111,255)
-    private val http = OkHttpClient.Builder().connectTimeout(30,TimeUnit.SECONDS).readTimeout(120,TimeUnit.SECONDS).build()
-    private lateinit var feed: LinearLayout
-    private lateinit var input: EditText
-    private lateinit var status: TextView
-    private var socket: Socket? = null
-    private val mediaPlayers = mutableListOf<MediaPlayer>()
-    private var serverUrl = ""
-    private var roomId = "general"
-    private var displayName = "DJ Sebas"
+    private val bg=Color.rgb(13,16,29)
+    private val panel=Color.rgb(25,30,49)
+    private val accent=Color.rgb(154,111,255)
+    private val http=OkHttpClient.Builder().connectTimeout(25,TimeUnit.SECONDS).readTimeout(90,TimeUnit.SECONDS).build()
+    private var baseUrl="https://chat-pro-server-qhjw.onrender.com"
+    private var token=""
+    private var me=JSONObject()
+    private var currentConversation=""
+    private var currentTitle=""
+    private var socket:Socket?=null
+    private lateinit var root:LinearLayout
+    private lateinit var content:LinearLayout
+    private lateinit var header:TextView
+    private lateinit var info:TextView
+    private lateinit var composer:EditText
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState)
-        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
-        serverUrl=prefs.getString("server_url","https://chat-pro-server-qhjw.onrender.com") ?: "https://chat-pro-server-qhjw.onrender.com"
-        displayName=prefs.getString("display_name","DJ Sebas") ?: "DJ Sebas"
-        roomId=prefs.getString("room_id","general") ?: "general"
-        window.statusBarColor=ink; window.navigationBarColor=ink
-        val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(ink);setPadding(14,12,14,10) }
-        root.addView(TextView(this).apply { text="CHAT PRO";textSize=25f;setTextColor(Color.WHITE);gravity=Gravity.CENTER;setPadding(4,8,4,2) })
-        root.addView(TextView(this).apply { text="Conecta, conversa y comparte archivos";textSize=13f;setTextColor(purple);gravity=Gravity.CENTER;setPadding(4,0,4,10) })
-        val toolbar=LinearLayout(this).apply { gravity=Gravity.CENTER;orientation=LinearLayout.HORIZONTAL }
-        toolbar.addView(Button(this).apply { text="Servidor";setOnClickListener { configure() } })
-        toolbar.addView(Button(this).apply { text="Sala";setOnClickListener { configureRoom() } })
-        toolbar.addView(Button(this).apply { text="Reconectar";setOnClickListener { connect() } })
-        root.addView(toolbar)
-        status=TextView(this).apply { text="Sin conectar · configura la dirección del servidor";setTextColor(Color.LTGRAY);textSize=12f;setPadding(6,5,6,8) }
-        root.addView(status)
-        feed=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setPadding(3,4,3,12) }
-        val scroll=ScrollView(this);scroll.addView(feed)
-        root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
-        root.addView(TextView(this).apply { text="Fotos · Videos · MP3 · WAV · M4A · FLAC · Documentos";textSize=11f;setTextColor(Color.LTGRAY);setPadding(3,7,3,7) })
-        val composer=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
-        composer.addView(Button(this).apply { text="＋";setOnClickListener { chooseFile() } })
-        input=EditText(this).apply { hint="Escribe un mensaje";setHintTextColor(Color.GRAY);setTextColor(Color.WHITE);setSingleLine(true);setPadding(10,3,10,3);setBackgroundColor(panel) }
-        composer.addView(input,LinearLayout.LayoutParams(0,52,1f))
-        composer.addView(Button(this).apply { text="Enviar";setOnClickListener { sendText() } })
-        root.addView(composer)
+        window.statusBarColor=bg;window.navigationBarColor=bg
+        val p=getSharedPreferences("chatpro",MODE_PRIVATE)
+        baseUrl=p.getString("server_url",baseUrl)?:baseUrl
+        token=p.getString("token","")?:""
+        if(token.isNotBlank()) loadMe() else showAuth()
+    }
+
+    private fun frame(title:String,subtitle:String="") {
+        root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(bg);setPadding(14,10,14,10) }
+        root.addView(TextView(this).apply { text=title;textSize=25f;gravity=Gravity.CENTER;setTextColor(Color.WHITE);setPadding(4,8,4,2) })
+        if(subtitle.isNotBlank())root.addView(TextView(this).apply{text=subtitle;textSize=12f;gravity=Gravity.CENTER;setTextColor(accent);setPadding(4,0,4,8)})
+        header=TextView(this).apply{text="";textSize=13f;setTextColor(Color.LTGRAY);setPadding(4,6,4,6)}
+        root.addView(header)
+        val scroll=ScrollView(this)
+        content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(2,4,2,10)}
+        scroll.addView(content);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         setContentView(root)
-        addBubble("CHAT PRO está listo. Configura la URL de tu servidor para conversar y compartir archivos.",false)
-        if(serverUrl.isNotBlank()) connect() else configure()
     }
-
-    private fun configure() {
-        val field=EditText(this).apply { setText(serverUrl);hint="https://tu-servidor.onrender.com";setSingleLine(true) }
-        AlertDialog.Builder(this).setTitle("Servidor CHAT PRO").setMessage("Pega la URL HTTPS del servidor desplegado.").setView(field)
-            .setNegativeButton("Cancelar",null).setPositiveButton("Guardar") { _,_ ->
-                serverUrl=field.text.toString().trim().trimEnd('/')
-                getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("server_url",serverUrl).apply()
-                connect()
-            }.show()
+    private fun showAuth() {
+        frame("CHAT PRO","Mensajería privada · cuentas y perfiles")
+        val name=field("Nombre visible")
+        val username=field("Usuario")
+        val password=field("Contraseña (mínimo 8 caracteres)")
+        password.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        content.addView(name);content.addView(username);content.addView(password)
+        val actions=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+        actions.addView(action("Crear cuenta"){authRequest("/api/register",JSONObject().put("name",name.text.toString()).put("username",username.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
+        actions.addView(action("Iniciar sesión"){authRequest("/api/login",JSONObject().put("username",username.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
+        content.addView(actions)
+        content.addView(action("Configurar servidor"){configureServer()})
+        header.text="Crea una cuenta o inicia sesión. Cada persona necesita su propio usuario."
     }
-
-    private fun configureRoom() {
-        val name=EditText(this).apply { setText(displayName);hint="Tu nombre" }
-        val room=EditText(this).apply { setText(roomId);hint="Nombre de sala" }
-        val box=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setPadding(20,4,20,4);addView(name);addView(room) }
-        AlertDialog.Builder(this).setTitle("Tu perfil y sala").setView(box).setNegativeButton("Cancelar",null).setPositiveButton("Guardar") { _,_ ->
-            displayName=name.text.toString().trim().ifBlank { "Usuario" }.take(40)
-            roomId=room.text.toString().trim().ifBlank { "general" }.take(80)
-            getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("display_name",displayName).putString("room_id",roomId).apply()
-            connect()
-        }.show()
-    }
-
-    private fun connect() {
-        if(serverUrl.isBlank()) { status.text="Falta configurar el servidor";return }
-        socket?.disconnect()
-        status.text="Despertando y verificando el servidor…"
-        status.setTextColor(Color.LTGRAY)
+    private fun authRequest(path:String,body:JSONObject) {
+        header.text="Conectando…"
         Thread {
             try {
-                val healthRequest=Request.Builder().url("$serverUrl/health").get().build()
-                http.newCall(healthRequest).execute().use { response ->
-                    if(!response.isSuccessful) throw Exception("Servidor respondió HTTP ${response.code}")
-                    val health=JSONObject(response.body?.string() ?: "{}")
-                    if(!health.optBoolean("ok",false)) throw Exception("El servidor no confirmó que está listo")
+                val req=Request.Builder().url(baseUrl+path).post(body.toString().toRequestBody("application/json".toMediaTypeOrNull())).build()
+                http.newCall(req).execute().use { res ->
+                    val data=JSONObject(res.body?.string()?: "{}")
+                    if(!res.isSuccessful)throw Exception(data.optString("error","HTTP ${res.code}"))
+                    token=data.optString("token");me=data.optJSONObject("user")?:JSONObject()
+                    getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("token",token).apply()
+                    runOnUiThread{showHome("Chats")}
                 }
-                runOnUiThread {
-                    try {
-                        val opts=IO.Options.builder()
-                            .setReconnection(true)
-                            .setReconnectionAttempts(Int.MAX_VALUE)
-                            .setTimeout(60000)
-                            .build()
-                        val newSocket=IO.socket(serverUrl,opts)
-                        socket=newSocket
-                        newSocket.on(Socket.EVENT_CONNECT) {
-                            runOnUiThread {
-                                status.text="Conectado · sala: $roomId"
-                                status.setTextColor(Color.GREEN)
-                            }
-                            newSocket.emit("room:join",JSONObject().put("roomId",roomId).put("displayName",displayName))
-                        }
-                        newSocket.on("room:history") { args ->
-                            val arr=args.firstOrNull() as? org.json.JSONArray ?: return@on
-                            runOnUiThread {
-                                feed.removeAllViews()
-                                for(i in 0 until arr.length()) renderMessage(arr.optJSONObject(i) ?: continue)
-                            }
-                        }
-                        newSocket.on("message:new") { args ->
-                            val obj=args.firstOrNull() as? JSONObject ?: return@on
-                            runOnUiThread { renderMessage(obj) }
-                        }
-                        newSocket.on(Socket.EVENT_CONNECT_ERROR) { args ->
-                            val detail=args.firstOrNull()?.toString()?.take(140) ?: "sin detalle"
-                            runOnUiThread {
-                                status.text="Fallo de conexión: $detail"
-                                status.setTextColor(Color.RED)
-                            }
-                        }
-                        newSocket.on(Socket.EVENT_DISCONNECT) {
-                            runOnUiThread {
-                                status.text="Conexión interrumpida · intentando reconectar…"
-                                status.setTextColor(Color.YELLOW)
-                            }
-                        }
-                        newSocket.connect()
-                        status.text="Servidor disponible · conectando al chat…"
-                    } catch(e:Exception) {
-                        status.text="Error al iniciar el chat: ${e.message}"
-                        status.setTextColor(Color.RED)
-                    }
-                }
-            } catch(e:Exception) {
-                runOnUiThread {
-                    status.text="Servidor no disponible: ${e.message}. Pulsa Reconectar para intentar de nuevo."
-                    status.setTextColor(Color.RED)
-                }
-            }
+            } catch(e:Exception){runOnUiThread{header.text=e.message?: "No se pudo iniciar sesión"}}
         }.start()
     }
-
-    private fun sendText() {
-        val value=input.text.toString().trim()
-        if(value.isBlank()) return
+    private fun loadMe() {
+        api("GET","/api/me",null,{data->me=data.optJSONObject("user")?:JSONObject();showHome("Chats")},{showAuth()})
+    }
+    private fun api(method:String,path:String,body:JSONObject?,ok:(JSONObject)->Unit,fail:(String)->Unit) {
+        Thread {
+            try {
+                val b=Request.Builder().url(baseUrl+path).header("Authorization","Bearer "+token)
+                val req=when(method){
+                    "POST"->b.post((body?:JSONObject()).toString().toRequestBody("application/json".toMediaTypeOrNull())).build()
+                    "PATCH"->b.patch((body?:JSONObject()).toString().toRequestBody("application/json".toMediaTypeOrNull())).build()
+                    "DELETE"->b.delete().build()
+                    else->b.get().build()
+                }
+                http.newCall(req).execute().use{res->
+                    val raw=res.body?.string()?: "{}";val data=try{JSONObject(raw)}catch(_:Exception){JSONObject()}
+                    if(!res.isSuccessful)throw Exception(data.optString("error","HTTP ${res.code}"))
+                    runOnUiThread{ok(data)}
+                }
+            }catch(e:Exception){runOnUiThread{fail(e.message?:"Error de conexión")}}
+        }.start()
+    }
+    private fun showHome(tab:String) {
+        socket?.disconnect()
+        frame("CHAT PRO",me.optString("name","Usuario")+" · @"+me.optString("username",""))
+        val nav=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+        listOf("Chats","Contactos","Estados","Perfil").forEach{t->nav.addView(action(t){showHome(t)},LinearLayout.LayoutParams(0,48,1f))}
+        root.addView(nav,1)
+        when(tab){
+            "Chats"->loadConversations()
+            "Contactos"->showContacts()
+            "Estados"->showStatuses()
+            "Perfil"->showProfile()
+        }
+    }
+    private fun loadConversations() {
+        header.text="Tus conversaciones privadas y grupos"
+        api("GET","/api/conversations",null,{data->
+            content.removeAllViews()
+            val arr=data.optJSONArray("conversations")?:JSONArray()
+            if(arr.length()==0)content.addView(note("Aún no tienes chats. Entra a Contactos para buscar personas."))
+            for(i in 0 until arr.length()){
+                val c=arr.optJSONObject(i)?:continue
+                val id=c.optString("id")
+                val title=c.optString("title").ifBlank{if(c.optString("type")=="group")"Grupo" else "Chat privado"}
+                content.addView(action("✉  $title  ·  ${c.optString("type")}"){openConversation(id,title)})
+            }
+        },{header.text=it})
+    }
+    private fun showContacts() {
+        content.removeAllViews();header.text="Busca usuarios para iniciar una conversación"
+        val q=field("Buscar por nombre o usuario");content.addView(q)
+        content.addView(action("Buscar"){searchUsers(q.text.toString())})
+        val result=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};content.addView(result)
+        q.setOnEditorActionListener{_,_,_->searchUsers(q.text.toString(),result);true}
+        searchUsers("",result)
+    }
+    private fun searchUsers(term:String,target:LinearLayout?=null) {
+        val box=target?:content
+        if(term.length<2){if(target!=null)box.removeAllViews();return}
+        api("GET","/api/users/search?q="+Uri.encode(term),null,{data->
+            box.removeAllViews()
+            val arr=data.optJSONArray("users")?:JSONArray()
+            for(i in 0 until arr.length()){
+                val u=arr.optJSONObject(i)?:continue
+                box.addView(action("${u.optString("name")}  ·  @${u.optString("username")}"){createConversation(u.optString("id"),u.optString("name"))})
+            }
+            if(arr.length()==0)box.addView(note("No se encontraron usuarios."))
+        },{header.text=it})
+    }
+    private fun createConversation(userId:String,name:String) {
+        api("POST","/api/conversations",JSONObject().put("members",JSONArray().put(userId)),{data->
+            val c=data.optJSONObject("conversation")?:return@api
+            openConversation(c.optString("id"),name)
+        },{header.text=it})
+    }
+    private fun openConversation(id:String,title:String) {
+        currentConversation=id;currentTitle=title
+        frame(title,"Conversación protegida · CHAT PRO")
+        header.text="Cargando historial…"
+        composer=field("Escribe un mensaje")
+        val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+        row.addView(action("＋"){chooseFile()},LinearLayout.LayoutParams(54,52))
+        row.addView(composer,LinearLayout.LayoutParams(0,52,1f))
+        row.addView(action("Enviar"){sendMessage()},LinearLayout.LayoutParams(85,52))
+        root.addView(row)
+        api("GET","/api/conversations/$id/messages",null,{data->
+            content.removeAllViews()
+            val arr=data.optJSONArray("messages")?:JSONArray()
+            for(i in 0 until arr.length())renderConversationMessage(arr.optJSONObject(i)?:continue)
+            header.text="Conectando al chat en tiempo real…";connectConversation()
+        },{header.text=it})
+    }
+    private fun connectConversation() {
+        try {
+            socket=IO.socket(baseUrl,IO.Options.builder().setAuth(mapOf("token" to token)).setReconnection(true).setTimeout(30000).build())
+            socket?.on(Socket.EVENT_CONNECT){runOnUiThread{header.text="En línea · $currentTitle"}}
+            socket?.on("conversation:history"){args->
+                val a=args.firstOrNull() as? JSONArray?:return@on
+                runOnUiThread{content.removeAllViews();for(i in 0 until a.length())renderConversationMessage(a.optJSONObject(i)?:continue)}
+            }
+            socket?.on("conversation:message"){args->
+                val obj=args.firstOrNull() as? JSONObject?:return@on
+                runOnUiThread{renderConversationMessage(obj)}
+            }
+            socket?.connect()
+            socket?.once(Socket.EVENT_CONNECT){socket?.emit("conversation:join",JSONObject().put("conversationId",currentConversation))}
+        }catch(e:Exception){header.text="Chat en línea no disponible: ${e.message}"}
+    }
+    private fun sendMessage() {
+        val text=composer.text.toString().trim()
+        if(text.isBlank())return
         val s=socket
-        if(s==null || !s.connected()) { toast("Conecta primero con el servidor");return }
-        s.emit("message:send",JSONObject().put("text",value))
-        input.setText("")
+        if(s==null||!s.connected()){toast("Espera a que el chat conecte");return}
+        s.emit("conversation:send",JSONObject().put("text",text));composer.setText("")
     }
-
+    private fun renderConversationMessage(obj:JSONObject) {
+        val user=obj.optJSONObject("user")
+        val who=user?.optString("name")?: "Usuario"
+        val text=obj.optString("text")
+        if(text.isNotBlank())content.addView(note("$who: $text"))
+        val media=obj.optJSONObject("media")
+        if(media!=null)content.addView(action("📎  ${media.optString("name","Archivo")}"){toast("El archivo se descarga desde el chat cuando el servidor autoriza la sesión.")})
+    }
+    private fun showStatuses() {
+        content.removeAllViews();header.text="Los estados desaparecen después de 24 horas"
+        val caption=field("¿Qué quieres compartir hoy?")
+        content.addView(caption)
+        content.addView(action("Publicar estado de texto"){val value=caption.text.toString().trim();if(value.isNotBlank())api("POST","/api/statuses",JSONObject().put("caption",value),{toast("Estado publicado");showHome("Estados")},{header.text=it})})
+        content.addView(action("Actualizar estados"){showStatuses()})
+        api("GET","/api/statuses",null,{data->
+            val arr=data.optJSONArray("statuses")?:JSONArray()
+            if(arr.length()==0)content.addView(note("Todavía no hay estados publicados."))
+            for(i in 0 until arr.length()){
+                val s=arr.optJSONObject(i)?:continue
+                val user=s.optJSONObject("user")
+                val label="${user?.optString("name")?: "Usuario"}: ${s.optString("caption")}  ·  ${s.optInt("viewedBy")} vistas"
+                content.addView(action(label){api("POST","/api/statuses/${s.optString("id")}/views",JSONObject(),{toast("Vista registrada")},{toast(it)})})
+            }
+        },{header.text=it})
+    }
+    private fun showProfile() {
+        content.removeAllViews();header.text="Tu cuenta y foto de perfil"
+        val name=field(me.optString("name"));val about=field(me.optString("about"))
+        val avatar=field(me.optString("avatarUrl"))
+        content.addView(note("@"+me.optString("username")))
+        content.addView(name);content.addView(about);content.addView(avatar)
+        content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
+        content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
+        content.addView(action("Cambiar servidor"){configureServer()})
+    }
     private fun chooseFile() {
-        val i=Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE);type="*/*" }
-        startActivityForResult(i,42)
+        val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="*/*"}
+        startActivityForResult(intent,42)
     }
-
     @Deprecated("Android compatibility")
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
         super.onActivityResult(requestCode,resultCode,data)
-        if(requestCode!=42 || resultCode!=RESULT_OK) return
-        val uri=data?.data ?: return
-        val name=uri.lastPathSegment?.substringAfterLast('/') ?: "archivo"
-        val mime=contentResolver.getType(uri) ?: "application/octet-stream"
-        status.text="Subiendo $name…"
-        Thread {
-            try {
-                val temp=File(cacheDir,"upload_${System.currentTimeMillis()}_${name.replace(Regex("[^A-Za-z0-9._-]"),"_")}")
-                contentResolver.openInputStream(uri)?.use { src->temp.outputStream().use { dst->src.copyTo(dst) } } ?: throw Exception("No se pudo leer el archivo")
-                val body=MultipartBody.Builder().setType(MultipartBody.FORM)
-                    .addFormDataPart("file",name,temp.asRequestBody(mime.toMediaTypeOrNull())).build()
-                val req=Request.Builder().url("$serverUrl/api/uploads").post(body).build()
-                http.newCall(req).execute().use { response ->
-                    if(!response.isSuccessful) throw Exception("Servidor respondió ${response.code}")
-                    val result=JSONObject(response.body?.string() ?: "{}")
-                    val media=JSONObject().put("name",result.optString("name",name)).put("mimeType",result.optString("mimeType",mime))
-                        .put("size",result.optLong("size")).put("downloadPath",result.optString("downloadPath"))
-                    runOnUiThread {
-                        val s=socket
-                        if(s!=null && s.connected()) {
-                            s.emit("message:send",JSONObject().put("text","").put("media",media))
-                            status.text="Archivo compartido: $name"
-                        } else status.text="Archivo subido; conecta a la sala para compartirlo"
+        if(requestCode!=42||resultCode!=RESULT_OK)return
+        val uri=data?.data?:return
+        val name=uri.lastPathSegment?.substringAfterLast('/')?:"archivo"
+        val mime=contentResolver.getType(uri)?:"application/octet-stream"
+        header.text="Subiendo $name…"
+        Thread{
+            try{
+                val tmp=File(cacheDir,"chatpro_${System.currentTimeMillis()}_"+name.replace(Regex("[^A-Za-z0-9._-]"),"_"))
+                contentResolver.openInputStream(uri)?.use{src->tmp.outputStream().use{dst->src.copyTo(dst)}}?:throw Exception("No se pudo leer el archivo")
+                val body=MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file",name,tmp.asRequestBody(mime.toMediaTypeOrNull())).build()
+                val req=Request.Builder().url("$baseUrl/api/uploads").header("Authorization","Bearer $token").post(body).build()
+                http.newCall(req).execute().use{res->
+                    val data=JSONObject(res.body?.string()?: "{}");if(!res.isSuccessful)throw Exception(data.optString("error","Error de subida"))
+                    val media=JSONObject().put("name",data.optString("name",name)).put("mimeType",data.optString("mimeType",mime)).put("size",data.optLong("size")).put("downloadPath",data.optString("downloadPath"))
+                    runOnUiThread{
+                        if(currentConversation.isNotBlank())socket?.emit("conversation:send",JSONObject().put("text","").put("media",media))
+                        else toast("Archivo cargado")
+                        header.text="Archivo cargado: $name"
                     }
-                }
-                temp.delete()
-            } catch(e:Exception) { runOnUiThread { status.text="Error al subir: ${e.message}" } }
+                };tmp.delete()
+            }catch(e:Exception){runOnUiThread{header.text=e.message?:"Error de subida"}}
         }.start()
     }
-
-    private fun renderMessage(obj:JSONObject) {
-        val who=obj.optString("displayName","Usuario")
-        val messageText=obj.optString("text","")
-        val media=obj.optJSONObject("media")
-        if(messageText.isNotBlank()) addBubble("$who: $messageText",who==displayName)
-        if(media!=null) {
-            val name=media.optString("name","Archivo")
-            val path=media.optString("downloadPath","")
-            val type=media.optString("mimeType","")
-            val url=if(path.startsWith("http")) path else serverUrl+path
-            feed.addView(TextView(this).apply { text="$who · $name";textSize=12f;setTextColor(Color.LTGRAY);setPadding(5,7,5,4) })
-            when {
-                type.startsWith("image/") -> {
-                    val preview=ImageView(this).apply { adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER;setBackgroundColor(panel) }
-                    Glide.with(this).load(url).into(preview)
-                    feed.addView(preview,LinearLayout.LayoutParams(-1,230).apply { setMargins(0,2,0,8) })
-                    preview.setOnClickListener { try { startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url))) } catch(_:Exception) { toast("No se pudo abrir la fotografía") } }
-                }
-                type.startsWith("video/") -> {
-                    val video=VideoView(this)
-                    val controller=MediaController(this)
-                    controller.setAnchorView(video);video.setMediaController(controller);video.setVideoURI(Uri.parse(url))
-                    feed.addView(video,LinearLayout.LayoutParams(-1,230).apply { setMargins(0,2,0,8) })
-                    video.setOnErrorListener { _,_,_ -> toast("Este formato de video no es compatible");true }
-                }
-                type.startsWith("audio/") -> {
-                    val play=Button(this).apply { text="▶  Escuchar $name" }
-                    feed.addView(play,LinearLayout.LayoutParams(-1,-2).apply { setMargins(0,2,0,8) })
-                    var current:MediaPlayer?=null
-                    play.setOnClickListener {
-                        val active=current
-                        if(active!=null && active.isPlaying) { active.pause();play.text="▶  Continuar $name" }
-                        else if(active!=null) { active.start();play.text="Ⅱ  Pausar $name" }
-                        else {
-                            play.isEnabled=false;play.text="Cargando audio…"
-                            val mp=MediaPlayer();current=mp;mediaPlayers.add(mp)
-                            try {
-                                mp.setDataSource(url)
-                                mp.setOnPreparedListener { player -> player.start();play.isEnabled=true;play.text="Ⅱ  Pausar $name" }
-                                mp.setOnCompletionListener { play.text="▶  Volver a escuchar $name" }
-                                mp.setOnErrorListener { _,_,_ -> play.isEnabled=true;play.text="▶  Reintentar $name";toast("No se pudo reproducir este audio");true }
-                                mp.prepareAsync()
-                            } catch(_:Exception) { play.isEnabled=true;play.text="▶  Reintentar $name";toast("No se pudo cargar el audio") }
-                        }
-                    }
-                }
-                else -> {
-                    val item=Button(this).apply { text="📎  Descargar / abrir $name";setOnClickListener { try { startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url))) } catch(_:Exception) { toast("No hay una aplicación compatible") } } }
-                    feed.addView(item,LinearLayout.LayoutParams(-1,-2))
-                }
-            }
-        }
+    private fun configureServer() {
+        val input=field(baseUrl)
+        AlertDialog.Builder(this).setTitle("Servidor CHAT PRO").setView(input).setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->baseUrl=input.text.toString().trim().trimEnd('/');getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("server_url",baseUrl).apply();if(token.isBlank())showAuth()else showHome("Chats")}.show()
     }
-
-    private fun addBubble(value:String,mine:Boolean) {
-        val bubble=TextView(this).apply { text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(13,10,13,10);setBackgroundColor(if(mine) Color.rgb(91,62,164) else panel) }
-        feed.addView(LinearLayout(this).apply { gravity=if(mine) Gravity.END else Gravity.START;setPadding(0,4,0,4);addView(bubble) })
-    }
-    private fun toast(s:String) { Toast.makeText(this,s,Toast.LENGTH_LONG).show() }
-    override fun onDestroy() { socket?.disconnect();socket?.off();mediaPlayers.forEach { try { it.release() } catch(_:Exception) {} };mediaPlayers.clear();super.onDestroy() }
+    private fun field(hint:String)=EditText(this).apply{this.hint=hint;setHintTextColor(Color.GRAY);setTextColor(Color.WHITE);setPadding(12,8,12,8);setBackgroundColor(panel);textSize=14f}
+    private fun action(label:String,click:()->Unit)=Button(this).apply{text=label;setTextColor(Color.WHITE);setBackgroundColor(panel);textSize=13f;setOnClickListener{click()}}
+    private fun note(value:String)=TextView(this).apply{text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(12,12,12,12)}
+    private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
+    override fun onDestroy(){socket?.disconnect();socket?.off();super.onDestroy()}
 }
