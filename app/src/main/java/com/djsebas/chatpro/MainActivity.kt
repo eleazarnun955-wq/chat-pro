@@ -29,7 +29,7 @@ class MainActivity : Activity() {
     private var token=""
     private var me=JSONObject()
     private var currentConversation=""
-    private var currentTitle=""
+    private var currentTitle=""\n    private var uploadMode="chat"
     private var socket:Socket?=null
     private lateinit var root:LinearLayout
     private lateinit var content:LinearLayout
@@ -231,7 +231,7 @@ class MainActivity : Activity() {
         val name=field(me.optString("name"));val about=field(me.optString("about"))
         val avatar=field(me.optString("avatarUrl"))
         content.addView(note("@"+me.optString("username")))
-        content.addView(name);content.addView(about);content.addView(avatar)
+        content.addView(name);content.addView(about);content.addView(avatar)\n        content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
         content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
         content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
         content.addView(action("Cambiar servidor"){configureServer()})
