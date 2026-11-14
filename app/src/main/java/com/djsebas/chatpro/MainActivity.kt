@@ -230,7 +230,7 @@ class MainActivity : Activity() {
         val caption=field("¿Qué quieres compartir hoy?")
         content.addView(caption)
         content.addView(action("Publicar estado de texto"){val value=caption.text.toString().trim();if(value.isNotBlank())api("POST","/api/statuses",JSONObject().put("caption",value),{toast("Estado publicado");showHome("Estados")},{header.text=it})})
-        content.addView(action("Publicar foto o video"){uploadMode="status";pendingStatusCaption=caption.text.toString().trim();val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/* video/*"};startActivityForResult(pick,44)})
+        content.addView(action("Publicar foto o video"){uploadMode="status";pendingStatusCaption=caption.text.toString().trim();val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="*/*";putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("image/*","video/*"))};startActivityForResult(pick,44)})
         content.addView(action("Actualizar estados"){showStatuses()})
         api("GET","/api/statuses",null,{data->
             val arr=data.optJSONArray("statuses")?:JSONArray()
