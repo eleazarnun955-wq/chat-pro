@@ -136,7 +136,9 @@ class MainActivity : Activity() {
                 val c=arr.optJSONObject(i)?:continue
                 val id=c.optString("id")
                 val title=c.optString("title").ifBlank{if(c.optString("type")=="group")"Grupo" else "Chat privado"}
-                content.addView(action("✉  $title  ·  ${c.optString("type")}"){openConversation(id,title)})
+                val unread=c.optInt("unread",0)
+                val unreadLabel=if(unread>0)"  ·  $unread sin leer" else ""
+                content.addView(action("✉  $title  ·  ${c.optString("type")}$unreadLabel"){openConversation(id,title)})
             }
         },{header.text=it})
     }
@@ -194,6 +196,7 @@ class MainActivity : Activity() {
             content.removeAllViews()
             val arr=data.optJSONArray("messages")?:JSONArray()
             for(i in 0 until arr.length())renderConversationMessage(arr.optJSONObject(i)?:continue)
+            api("POST","/api/conversations/$id/read",JSONObject(),{},{})
             header.text="Conectando al chat en tiempo real…";connectConversation()
         },{header.text=it})
     }
