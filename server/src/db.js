@@ -62,17 +62,19 @@ export async function getConversation(id) {
   const { data, error } = await supabase.from("conversations").select("*").eq("id", id).maybeSingle(); fail(error); return data;
 }
 export async function listConversations(userId) {
-  const { data: memberships, error: me } = await supabase.from("conversation_members").select("conversation_id,role").eq("user_id", userId); fail(me);
+  const { data: memberships, error: me } = await supabase.from("conversation_members").select("conversation_id,role,last_read_at").eq("user_id", userId); fail(me);
   const ids = (memberships || []).map(x => x.conversation_id); if (!ids.length) return [];
   const { data: convs, error } = await supabase.from("conversations").select("*").in("id", ids).order("created_at", { ascending: false }); fail(error);
   const out = [];
   for (const c of convs || []) {
-    const [{ data: members, error: mErr }, { data: last, error: lErr }] = await Promise.all([
+    const membership = (memberships || []).find(x => x.conversation_id === c.id);
+    const [{ data: members, error: mErr }, { data: last, error: lErr }, { count: unread, error: uErr }] = await Promise.all([
       supabase.from("conversation_members").select("user_id").eq("conversation_id", c.id),
-      supabase.from("messages").select("id,body,media,created_at,sender_id").eq("conversation_id", c.id).order("created_at", { ascending: false }).limit(1)
+      supabase.from("messages").select("id,body,media,created_at,sender_id").eq("conversation_id", c.id).order("created_at", { ascending: false }).limit(1),
+      (() => { let q = supabase.from("messages").select("id", { count: "exact", head: true }).eq("conversation_id", c.id).neq("sender_id", userId); return membership?.last_read_at ? q.gt("created_at", membership.last_read_at) : q; })()
     ]);
-    fail(mErr); fail(lErr);
-    out.push({ id:c.id, type:c.type, title:c.title, members:(members||[]).map(x=>x.user_id), createdBy:c.created_by, createdAt:c.created_at, visibility:c.visibility, description:c.description, unread:0, lastMessage:last?.[0]?{id:last[0].id,text:last[0].body,media:last[0].media,createdAt:last[0].created_at,senderId:last[0].sender_id}:null });
+    fail(mErr); fail(lErr); fail(uErr);
+    out.push({ id:c.id, type:c.type, title:c.title, members:(members||[]).map(x=>x.user_id), createdBy:c.created_by, createdAt:c.created_at, visibility:c.visibility, description:c.description, unread:unread||0, lastMessage:last?.[0]?{id:last[0].id,text:last[0].body,media:last[0].media,createdAt:last[0].created_at,senderId:last[0].sender_id}:null });
   }
   return out;
 }
@@ -84,6 +86,14 @@ export async function createConversation({ id, type, title, members, createdBy, 
 }
 export async function addConversationMember(conversationId, userId) {
   const { error } = await supabase.from("conversation_members").upsert({ conversation_id:conversationId, user_id:userId }); fail(error);
+}
+export async function markConversationRead(conversationId, userId) {
+  const now = new Date().toISOString();
+  const { error: memberError } = await supabase.from("conversation_members").update({ last_read_at: now }).eq("conversation_id", conversationId).eq("user_id", userId);
+  fail(memberError);
+  const { error: messageError } = await supabase.from("messages").update({ read_at: now }).eq("conversation_id", conversationId).neq("sender_id", userId).is("read_at", null);
+  fail(messageError);
+  return now;
 }
 export async function listMessages(conversationId) {
   const { data, error } = await supabase.from("messages").select("*,profiles!messages_sender_id_fkey(*)").eq("conversation_id",conversationId).order("created_at",{ascending:true}).limit(500); fail(error);
