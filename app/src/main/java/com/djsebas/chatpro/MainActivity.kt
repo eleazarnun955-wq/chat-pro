@@ -30,6 +30,7 @@ class MainActivity : Activity() {
     private lateinit var input: EditText
     private lateinit var status: TextView
     private var socket: Socket? = null
+    private val mediaPlayers = mutableListOf<MediaPlayer>()
     private var serverUrl = ""
     private var roomId = "general"
     private var displayName = "DJ Sebas"
@@ -171,12 +172,47 @@ class MainActivity : Activity() {
             val path=media.optString("downloadPath","")
             val type=media.optString("mimeType","")
             val url=if(path.startsWith("http")) path else serverUrl+path
-            val item=TextView(this).apply {
-                this.text=when { type.startsWith("image/")->"🖼️  $who · $name\nToca para ver fotografía";type.startsWith("video/")->"🎬  $who · $name\nToca para reproducir video";type.startsWith("audio/")->"🎵  $who · $name\nToca para escuchar";else->"📎  $who · $name\nToca para abrir o descargar" }
-                textSize=14f;setTextColor(Color.WHITE);setPadding(14,12,14,12);setBackgroundColor(panel)
-                setOnClickListener { try { startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) } catch(_:Exception) { toast("No hay una aplicación compatible para abrir este archivo") } }
+            feed.addView(TextView(this).apply { text="$who · $name";textSize=12f;setTextColor(Color.LTGRAY);setPadding(5,7,5,4) })
+            when {
+                type.startsWith("image/") -> {
+                    val preview=ImageView(this).apply { adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER;setBackgroundColor(panel) }
+                    Glide.with(this).load(url).into(preview)
+                    feed.addView(preview,LinearLayout.LayoutParams(-1,230).apply { setMargins(0,2,0,8) })
+                    preview.setOnClickListener { try { startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url))) } catch(_:Exception) { toast("No se pudo abrir la fotografía") } }
+                }
+                type.startsWith("video/") -> {
+                    val video=VideoView(this)
+                    val controller=MediaController(this)
+                    controller.setAnchorView(video);video.setMediaController(controller);video.setVideoURI(Uri.parse(url))
+                    feed.addView(video,LinearLayout.LayoutParams(-1,230).apply { setMargins(0,2,0,8) })
+                    video.setOnErrorListener { _,_,_ -> toast("Este formato de video no es compatible");true }
+                }
+                type.startsWith("audio/") -> {
+                    val play=Button(this).apply { text="▶  Escuchar $name" }
+                    feed.addView(play,LinearLayout.LayoutParams(-1,-2).apply { setMargins(0,2,0,8) })
+                    var current:MediaPlayer?=null
+                    play.setOnClickListener {
+                        val active=current
+                        if(active!=null && active.isPlaying) { active.pause();play.text="▶  Continuar $name" }
+                        else if(active!=null) { active.start();play.text="Ⅱ  Pausar $name" }
+                        else {
+                            play.isEnabled=false;play.text="Cargando audio…"
+                            val mp=MediaPlayer();current=mp;mediaPlayers.add(mp)
+                            try {
+                                mp.setDataSource(url)
+                                mp.setOnPreparedListener { player -> player.start();play.isEnabled=true;play.text="Ⅱ  Pausar $name" }
+                                mp.setOnCompletionListener { play.text="▶  Volver a escuchar $name" }
+                                mp.setOnErrorListener { _,_,_ -> play.isEnabled=true;play.text="▶  Reintentar $name";toast("No se pudo reproducir este audio");true }
+                                mp.prepareAsync()
+                            } catch(_:Exception) { play.isEnabled=true;play.text="▶  Reintentar $name";toast("No se pudo cargar el audio") }
+                        }
+                    }
+                }
+                else -> {
+                    val item=Button(this).apply { text="📎  Descargar / abrir $name";setOnClickListener { try { startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url))) } catch(_:Exception) { toast("No hay una aplicación compatible") } } }
+                    feed.addView(item,LinearLayout.LayoutParams(-1,-2))
+                }
             }
-            feed.addView(item,LinearLayout.LayoutParams(-1,-2).apply { setMargins(0,5,0,5) })
         }
     }
 
@@ -185,5 +221,5 @@ class MainActivity : Activity() {
         feed.addView(LinearLayout(this).apply { gravity=if(mine) Gravity.END else Gravity.START;setPadding(0,4,0,4);addView(bubble) })
     }
     private fun toast(s:String) { Toast.makeText(this,s,Toast.LENGTH_LONG).show() }
-    override fun onDestroy() { socket?.disconnect();socket?.off();super.onDestroy() }
+    override fun onDestroy() { socket?.disconnect();socket?.off();mediaPlayers.forEach { try { it.release() } catch(_:Exception) {} };mediaPlayers.clear();super.onDestroy() }
 }
