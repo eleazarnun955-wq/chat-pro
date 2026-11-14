@@ -6,11 +6,12 @@ android {
     namespace = "com.djsebas.chatpro"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.djsebas.chatpro.v2"
+        // New application ID keeps this build separate from previously installed CHAT PRO packages.
+        applicationId = "com.djsebas.chatpro.v3"
         minSdk = 23
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions {
