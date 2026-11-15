@@ -2,13 +2,15 @@
 **Mensajería multiusuario para Android**
 
 ## Android
-- Paquete independiente: `com.djsebas.chatpro.v3`.
-- Versión: `1.6.0` (versionCode `10`).
+- Paquete Android: `com.djsebas.chatpro.v162`.
+- Versión: `1.6.3` (versionCode `13`).
 - La actualización conserva el mismo applicationId que la instalación 1.4.0.
 - APK: GitHub Actions → **Build CHAT PRO APK** → artifact **CHAT-PRO-debug**.
 
 ## Funciones conectadas
-- Registro, inicio/cierre de sesión, sesiones con token y perfiles.
+- Registro e inicio de sesión exclusivamente con correo electrónico y contraseña (sin teléfono ni SMS).
+- Vinculación segura de correo a cuentas anteriores mediante confirmación de contraseña.
+- Sesiones con token y perfiles.
 - Búsqueda de usuarios y conversaciones privadas.
 - Grupos privados con autorización por membresía.
 - Salas públicas y privadas: creación, exploración y unión/invitación de integrantes.
