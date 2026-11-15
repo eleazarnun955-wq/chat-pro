@@ -15,6 +15,7 @@ import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
 import android.content.res.ColorStateList
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.Bundle
 import android.os.Environment
 import android.view.Gravity
@@ -566,8 +567,40 @@ class MainActivity : Activity() {
         content.addView(action("Volver al perfil"){showHome("Perfil")})
     }
     private fun chooseFile() {
-        val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="*/*"}
-        startActivityForResult(intent,42)
+        val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type="*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("image/*","video/*","audio/*","application/pdf","application/*"))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try { startActivityForResult(intent,42) }
+        catch (_:Exception) { toast("No se pudo abrir el selector de archivos") }
+    }
+    private fun displayName(uri:Uri):String {
+        var result:String?=null
+        try {
+            contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { cursor ->
+                if(cursor.moveToFirst()) {
+                    val index=cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if(index>=0) result=cursor.getString(index)
+                }
+            }
+        } catch (_:Exception) {}
+        if(result.isNullOrBlank()) result=uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':')
+        return (result?: "archivo").substringAfterLast('/').ifBlank { "archivo" }
+    }
+    private fun extensionForMime(mime:String):String {
+        return when(mime.lowercase().substringBefore(';')) {
+            "image/jpeg" -> ".jpg"; "image/png" -> ".png"; "image/webp" -> ".webp"
+            "image/gif" -> ".gif"; "image/heic","image/heif" -> ".heic"; "image/bmp" -> ".bmp"
+            "video/mp4" -> ".mp4"; "video/quicktime" -> ".mov"; "video/webm" -> ".webm"
+            "video/3gpp" -> ".3gp"; "video/x-matroska" -> ".mkv"
+            "audio/mpeg","audio/mp3" -> ".mp3"; "audio/mp4","audio/x-m4a" -> ".m4a"
+            "audio/wav","audio/x-wav" -> ".wav"; "audio/aac" -> ".aac"
+            "audio/ogg","application/ogg" -> ".ogg"; "audio/flac" -> ".flac"
+            "audio/amr" -> ".amr"; "audio/opus" -> ".opus"
+            "application/pdf" -> ".pdf"; else -> ""
+        }
     }
     @Deprecated("Android compatibility")
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
@@ -575,14 +608,23 @@ class MainActivity : Activity() {
         if(requestCode !in listOf(42,43,44,45)||resultCode!=RESULT_OK)return
         val uri=data?.data?:return
         if(requestCode==45){ try { contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION); getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString(pendingWallpaperKey,uri.toString()).apply(); applyWallpaper(pendingWallpaperKey); toast("Fondo actualizado") } catch(_:Exception){toast("No se pudo guardar el fondo")}; return }
-        val name=uri.lastPathSegment?.substringAfterLast('/')?:"archivo"
-        val mime=contentResolver.getType(uri)?:"application/octet-stream"
+        val mime=(try { contentResolver.getType(uri) } catch (_:Exception) { null })?.lowercase()?.substringBefore(';') ?: "application/octet-stream"
+        val originalName=displayName(uri)
+        val inferredExt=extensionForMime(mime)
+        val name=if(originalName.substringAfterLast('.', "").isNotBlank()) originalName else originalName+inferredExt
         header.text="Subiendo $name…"
         Thread{
             try{
-                val tmp=File(cacheDir,"chatpro_${System.currentTimeMillis()}_"+name.replace(Regex("[^A-Za-z0-9._-]"),"_"))
-                contentResolver.openInputStream(uri)?.use{src->tmp.outputStream().use{dst->src.copyTo(dst)}}?:throw Exception("No se pudo leer el archivo")
-                val body=MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file",name,tmp.asRequestBody(mime.toMediaTypeOrNull())).build()
+                val safeName=name.replace(Regex("[^A-Za-z0-9._-]"),"_").ifBlank { "archivo"+inferredExt }
+                val tmp=File(cacheDir,"chatpro_${System.currentTimeMillis()}_"+safeName)
+                contentResolver.openInputStream(uri)?.use{src->tmp.outputStream().use{dst->src.copyTo(dst)}}?:throw Exception("Android no permitió leer este archivo. Intenta elegirlo desde la carpeta Archivos.")
+                if(tmp.length()==0L) throw Exception("El archivo está vacío o no se pudo leer")
+                val uploadMime=if(mime=="application/octet-stream" && inferredExt.isNotBlank()) when(inferredExt) {
+                    ".jpg"->"image/jpeg"; ".png"->"image/png"; ".webp"->"image/webp"; ".mp4"->"video/mp4"
+                    ".mov"->"video/quicktime"; ".mp3"->"audio/mpeg"; ".m4a"->"audio/mp4"; ".wav"->"audio/wav"
+                    ".ogg"->"audio/ogg"; ".pdf"->"application/pdf"; else->mime
+                } else mime
+                val body=MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file",name,tmp.asRequestBody(uploadMime.toMediaTypeOrNull())).build()
                 val req=Request.Builder().url("$baseUrl/api/uploads").header("Authorization","Bearer $token").post(body).build()
                 http.newCall(req).execute().use{res->
                     val data=JSONObject(res.body?.string()?: "{}");if(!res.isSuccessful)throw Exception(data.optString("error","Error de subida"))
