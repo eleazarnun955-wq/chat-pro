@@ -133,11 +133,63 @@ class MainActivity : Activity() {
     }
     private fun showHome(tab:String) {
         socket?.disconnect()
-        frame("CHAT PRO",me.optString("name","Usuario")+" · @"+me.optString("username",""))
-        val nav=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        listOf("Chats","Contactos","Salas","Estados","Perfil").forEach{t->nav.addView(action(t){showHome(t)},LinearLayout.LayoutParams(0,48,1f))}
-        root.addView(nav,1)
-        root.addView(action("Cambiar fondo principal"){chooseWallpaper("home_wallpaper")},2)
+        // Diseño principal: navegación vertical a la izquierda y contenido a la derecha.
+        root=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setBackgroundColor(bg)
+            setPadding(10,8,10,8)
+        }
+        root.addView(TextView(this).apply {
+            text="CHAT PRO";textSize=25f;gravity=Gravity.CENTER
+            setTextColor(Color.WHITE);setPadding(4,8,4,2)
+        })
+        root.addView(TextView(this).apply {
+            text=me.optString("name","Usuario")+" · @"+me.optString("username","")
+            textSize=12f;gravity=Gravity.CENTER;setTextColor(accent)
+            setPadding(4,0,4,7)
+        })
+        header=TextView(this).apply {
+            text="";textSize=13f;setTextColor(Color.LTGRAY)
+            setPadding(4,6,4,8)
+        }
+        root.addView(header)
+        val workspace=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+        }
+        val nav=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(0,2,7,2)
+        }
+        val navWidth=(112*resources.displayMetrics.density).toInt()
+        listOf(
+            "💬\nChats" to "Chats",
+            "👥\nContactos" to "Contactos",
+            "🌐\nSalas" to "Salas",
+            "🟣\nEstados" to "Estados",
+            "👤\nPerfil" to "Perfil"
+        ).forEach { (label,destination) ->
+            val item=action(label){showHome(destination)}
+            item.textSize=14f
+            item.minHeight=68
+            item.setPadding(4,8,4,8)
+            nav.addView(item,LinearLayout.LayoutParams(-1,0,1f).apply {
+                setMargins(0,3,0,3)
+            })
+        }
+        val mainScroll=ScrollView(this)
+        content=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(2,4,2,10)
+        }
+        mainScroll.addView(content)
+        workspace.addView(nav,LinearLayout.LayoutParams(navWidth,-1))
+        workspace.addView(mainScroll,LinearLayout.LayoutParams(0,-1,1f))
+        root.addView(workspace,LinearLayout.LayoutParams(-1,0,1f))
+        root.addView(action("🖼  Cambiar fondo principal"){
+            chooseWallpaper("home_wallpaper")
+        })
+        setContentView(root)
+        applyWallpaper("home_wallpaper")
         when(tab){
             "Chats"->loadConversations()
             "Contactos"->showContacts()
