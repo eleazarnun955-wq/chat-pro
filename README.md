@@ -2,9 +2,9 @@
 **Mensajería multiusuario para Android**
 
 ## Android
-- Paquete Android: `com.djsebas.chatpro.v162`.
-- Versión: `1.6.3` (versionCode `13`).
-- La actualización conserva el mismo applicationId que la instalación 1.4.0.
+- Paquete Android: `com.djsebas.chatpro.v166` (instalación independiente).
+- Versión: `1.6.6` (versionCode `16`).
+- Puede instalarse junto a las versiones anteriores de CHAT PRO.
 - APK: GitHub Actions → **Build CHAT PRO APK** → artifact **CHAT-PRO-debug**.
 
 ## Funciones conectadas
@@ -20,8 +20,11 @@
 - Presencia de conexión y última actividad.
 - Estados de 24 horas y visualizaciones.
 - Fotos, videos, audio y documentos en Supabase Storage privado.
-- Reproducción de audio desde conversaciones.
-- Descarga de medios y estados compartidos.
+- Vista previa de imágenes dentro del chat y apertura ampliada.
+- Reproducción integrada de videos, música y audios.
+- Descarga autenticada de todos los archivos a `Descargas/CHAT PRO`.
+- Reproducción en línea con soporte de solicitudes HTTP Range para audio y video.
+- Acceso a archivos de mensajes limitado a integrantes de la conversación; los estados vigentes conservan su visibilidad para usuarios registrados.
 - Eliminación de estados propios.
 - Cambio de contraseña y cierre de otras sesiones.
 - Descargas autenticadas a `Descargas/CHAT PRO`.
@@ -33,7 +36,7 @@
 - RLS está habilitado en las tablas internas; el backend usa una credencial de servidor, nunca una clave secreta en Android.
 
 ## Pendientes de validación
-- Prueba integral con dos o más teléfonos y cuentas.
+- Prueba integral con dos o más teléfonos y cuentas: subida, vista previa, reproducción, descarga y permisos de archivos en salas públicas y privadas.
 - Notificaciones push del sistema (requieren configurar Firebase Cloud Messaging y credenciales).
 - Asistente de IA generativa (requiere elegir y configurar un proveedor/API y su clave).
 - Llamadas de voz/video y cifrado de extremo a extremo.
