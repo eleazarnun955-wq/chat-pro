@@ -8,26 +8,31 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        // Keep this ID stable so future CHAT PRO builds update the same app.
-        applicationId = "com.djsebas.chatpro.v150.testfix"
+        // Stable application ID: keep CHAT PRO as the same Android app.
+        applicationId = "com.djsebas.chatpro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.5.2"
+        versionCode = 9
+        versionName = "1.5.3"
     }
 
     signingConfigs {
         create("release") {
-            storeFile = file(System.getenv("CHAT_PRO_KEYSTORE_PATH") ?: "chat-pro-release.jks")
+            val keystorePath = System.getenv("CHAT_PRO_KEYSTORE_PATH")
+                ?: "chat-pro-release.jks"
+            storeFile = file(keystorePath)
             storePassword = System.getenv("CHAT_PRO_STORE_PASSWORD")
+                ?: providers.gradleProperty("CHAT_PRO_STORE_PASSWORD").orNull
             keyAlias = System.getenv("CHAT_PRO_KEY_ALIAS")
+                ?: providers.gradleProperty("CHAT_PRO_KEY_ALIAS").orNull
             keyPassword = System.getenv("CHAT_PRO_KEY_PASSWORD")
+                ?: providers.gradleProperty("CHAT_PRO_KEY_PASSWORD").orNull
         }
     }
 
     buildTypes {
         debug {
-            // Debug builds remain for local development only.
+            // Debug builds are not distributed.
         }
         release {
             isMinifyEnabled = false
