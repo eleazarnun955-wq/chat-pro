@@ -51,6 +51,12 @@ export async function getSessionUser(token) {
 export async function deleteSession(token) {
   const { error } = await supabase.from("app_sessions").delete().eq("token_hash", tokenHash(token)); fail(error);
 }
+export async function updatePassword(userId, salt, hash, currentToken) {
+  const { error } = await supabase.from("app_credentials").update({ password_salt:salt, password_hash:hash, updated_at:new Date().toISOString() }).eq("user_id",userId);
+  fail(error);
+  const { error: sessionsError } = await supabase.from("app_sessions").delete().eq("user_id",userId).neq("token_hash",tokenHash(currentToken));
+  fail(sessionsError);
+}
 export async function searchUsers(term, excludeId) {
   const { data, error } = await supabase.from("profiles").select("*").neq("id", excludeId).or(`username.ilike.%${term}%,display_name.ilike.%${term}%`).limit(30); fail(error);
   return (data || []).map(publicUser);
