@@ -7,6 +7,14 @@
 - La actualización conserva el mismo applicationId que la instalación 1.4.0.
 - APK: GitHub Actions → **Build CHAT PRO APK** → artifact **CHAT-PRO-debug**.
 
+## Registro y seguridad de cuentas
+- El registro nuevo exige verificar correo electrónico mediante OTP o celular mediante SMS, a elección del usuario.
+- El correo y teléfono verificados se guardan en columnas privadas con índices únicos; nunca se incluyen en el perfil público.
+- El servidor rechaza el registro antiguo sin verificación y comprueba la sesión de Supabase antes de crear la cuenta.
+- La recuperación mediante OTP está disponible para cuentas creadas con el nuevo flujo y vinculadas a un contacto verificado.
+- Para activar correo, configura la plantilla de Auth para mostrar `{{ .Token }}` como código de seis dígitos y revisa SMTP.
+- Para activar celular, habilita Phone Auth y configura un proveedor SMS compatible en Supabase. Sin esa configuración, el envío de SMS no funcionará.
+
 ## Funciones conectadas
 - Registro, inicio/cierre de sesión, sesiones con token y perfiles.
 - Búsqueda de usuarios y conversaciones privadas.
