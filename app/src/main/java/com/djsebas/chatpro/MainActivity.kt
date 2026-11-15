@@ -83,16 +83,17 @@ class MainActivity : Activity() {
     private fun showAuth() {
         frame("CHAT PRO","Mensajería privada · cuentas y perfiles")
         val name=field("Nombre visible")
-        val username=field("Usuario")
+        val email=field("Correo electrónico")
+        email.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
         val password=field("Contraseña (mínimo 8 caracteres)")
         password.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-        content.addView(name);content.addView(username);content.addView(password)
+        content.addView(name);content.addView(email);content.addView(password)
         val actions=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        actions.addView(action("Crear cuenta"){authRequest("/api/register",JSONObject().put("name",name.text.toString()).put("username",username.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
-        actions.addView(action("Iniciar sesión"){authRequest("/api/login",JSONObject().put("username",username.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
+        actions.addView(action("Crear cuenta"){authRequest("/api/register",JSONObject().put("name",name.text.toString()).put("email",email.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
+        actions.addView(action("Iniciar sesión"){authRequest("/api/login",JSONObject().put("email",email.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
         content.addView(actions)
         content.addView(action("Configurar servidor"){configureServer()})
-        header.text="Crea una cuenta o inicia sesión. Cada persona necesita su propio usuario."
+        header.text="Regístrate e inicia sesión únicamente con tu correo electrónico y contraseña."
     }
     private fun authRequest(path:String,body:JSONObject) {
         header.text="Conectando…"
