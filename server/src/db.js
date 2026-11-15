@@ -97,7 +97,44 @@ export async function markConversationRead(conversationId, userId) {
 }
 export async function listMessages(conversationId) {
   const { data, error } = await supabase.from("messages").select("*,profiles!messages_sender_id_fkey(*)").eq("conversation_id",conversationId).order("created_at",{ascending:true}).limit(500); fail(error);
-  return (data||[]).map(m=>({ id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at }));
+  const ids=(data||[]).map(m=>m.id);
+  const { data: reactions, error: re } = ids.length ? await supabase.from("message_reactions").select("message_id,user_id,reaction").in("message_id",ids) : {data:[],error:null}; fail(re);
+  return (data||[]).map(m=>({ id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at, deliveredAt:m.delivered_at, readAt:m.read_at, reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) }));
+}
+export async function getMessage(id) {
+  const { data,error } = await supabase.from("messages").select("id,conversation_id,sender_id").eq("id",id).maybeSingle(); fail(error); return data;
+}
+export async function toggleMessageReaction(messageId,userId,reaction) {
+  const { data: existing,error: findError } = await supabase.from("message_reactions").select("reaction").eq("message_id",messageId).eq("user_id",userId).maybeSingle(); fail(findError);
+  if(existing?.reaction===reaction) {
+    const { error } = await supabase.from("message_reactions").delete().eq("message_id",messageId).eq("user_id",userId); fail(error);
+  } else {
+    const { error } = await supabase.from("message_reactions").upsert({message_id:messageId,user_id:userId,reaction},{onConflict:"message_id,user_id"}); fail(error);
+  }
+  const { data,error } = await supabase.from("message_reactions").select("user_id,reaction").eq("message_id",messageId); fail(error); return data||[];
+}
+export async function markConversationDelivered(conversationId,userId) {
+  const { error } = await supabase.from("messages").update({delivered_at:new Date().toISOString()}).eq("conversation_id",conversationId).neq("sender_id",userId).is("delivered_at",null); fail(error);
+}
+export async function updateLastSeen(userId) {
+  const { error } = await supabase.from("profiles").update({last_seen_at:new Date().toISOString()}).eq("id",userId); fail(error);
+}
+export async function listPublicRooms(userId) {
+  const { data,error } = await supabase.from("conversations").select("id,title,description,created_by,created_at").eq("type","room").eq("visibility","public").order("created_at",{ascending:false}).limit(100); fail(error);
+  const rooms=[];
+  for(const room of data||[]) {
+    const [{count,error:ce},{data:mine,error:me}] = await Promise.all([
+      supabase.from("conversation_members").select("user_id",{count:"exact",head:true}).eq("conversation_id",room.id),
+      supabase.from("conversation_members").select("user_id").eq("conversation_id",room.id).eq("user_id",userId).maybeSingle()
+    ]);
+    fail(ce); fail(me); rooms.push({...room,members:count||0,isMember:!!mine});
+  }
+  return rooms;
+}
+export async function joinPublicRoom(conversationId,userId) {
+  const {data,error}=await supabase.from("conversations").select("id,type,visibility").eq("id",conversationId).maybeSingle(); fail(error);
+  if(!data||data.type!=="room"||data.visibility!=="public")return false;
+  const {error:joinError}=await supabase.from("conversation_members").upsert({conversation_id:conversationId,user_id:userId},{onConflict:"conversation_id,user_id"}); fail(joinError); return true;
 }
 export async function createMessage({ id, conversationId, senderId, text, media }) {
   const { data, error } = await supabase.from("messages").insert({ id, conversation_id:conversationId, sender_id:senderId, body:text||"", media:media||null }).select("*,profiles!messages_sender_id_fkey(*)").single(); fail(error);
