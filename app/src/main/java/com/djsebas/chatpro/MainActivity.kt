@@ -365,7 +365,23 @@ class MainActivity : Activity() {
         val media=obj.optJSONObject("media")
         if(media!=null){
             val mediaName=media.optString("name","Archivo")
-            if(media.optString("mimeType").startsWith("audio/"))content.addView(action("▶  Reproducir: $mediaName"){playAudio(media)})
+            val mime=media.optString("mimeType").lowercase()
+            when {
+                mime.startsWith("image/") -> {
+                    val preview=ImageView(this).apply {
+                        adjustViewBounds=true
+                        scaleType=ImageView.ScaleType.FIT_CENTER
+                        maxHeight=(220*resources.displayMetrics.density).toInt()
+                        setBackgroundColor(Color.argb(90,255,255,255))
+                    }
+                    content.addView(preview,LinearLayout.LayoutParams(-1,(220*resources.displayMetrics.density).toInt()))
+                    loadImagePreview(media,preview)
+                    content.addView(action("Ver imagen: $mediaName"){showImage(media)})
+                }
+                mime.startsWith("video/") -> content.addView(action("▶  Reproducir video: $mediaName"){playVideo(media)})
+                mime.startsWith("audio/") -> content.addView(action("▶  Reproducir música o audio: $mediaName"){playAudio(media)})
+                else -> content.addView(note("📎 Archivo: $mediaName"))
+            }
             content.addView(action("⬇  Descargar: $mediaName"){downloadMedia(media)})
         }
         val reactions=obj.optJSONArray("reactions")?:JSONArray()
@@ -390,14 +406,59 @@ class MainActivity : Activity() {
             for(i in 0 until arr.length())renderConversationMessage(arr.optJSONObject(i)?:continue)
         },{header.text=it})
     }
-    private fun playAudio(media:JSONObject) {
+    private fun mediaUrl(media:JSONObject):String? {
         val path=media.optString("downloadPath")
-        if(!path.startsWith("/api/uploads/")){toast("Este audio no tiene una ruta válida");return}
+        if(!path.startsWith("/api/uploads/"))return null
+        return baseUrl+path+"?inline=1"
+    }
+    private fun loadImagePreview(media:JSONObject,target:ImageView) {
+        val url=mediaUrl(media)?:return
+        Thread {
+            try {
+                val request=Request.Builder().url(url).header("Authorization","Bearer "+token).build()
+                http.newCall(request).execute().use { response ->
+                    if(!response.isSuccessful)throw Exception("No se pudo cargar la imagen")
+                    val bytes=response.body?.bytes()?:throw Exception("Imagen vacía")
+                    val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true}
+                    BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
+                    var sample=1
+                    while(bounds.outWidth/sample>1280||bounds.outHeight/sample>1280)sample*=2
+                    val options=BitmapFactory.Options().apply{inSampleSize=sample}
+                    val bitmap=BitmapFactory.decodeByteArray(bytes,0,bytes.size,options)
+                    runOnUiThread { if(bitmap!=null)target.setImageBitmap(bitmap) }
+                }
+            } catch(_:Exception) { runOnUiThread { target.setBackgroundColor(Color.argb(150,120,35,35)) } }
+        }.start()
+    }
+    private fun showImage(media:JSONObject) {
+        val image=ImageView(this).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER}
+        val box=ScrollView(this).apply{addView(image)}
+        AlertDialog.Builder(this).setTitle(media.optString("name","Imagen")).setView(box).setPositiveButton("Cerrar",null).show()
+        loadImagePreview(media,image)
+    }
+    private fun playVideo(media:JSONObject) {
+        val url=mediaUrl(media)
+        if(url==null){toast("Este video no tiene una ruta válida");return}
+        val video=VideoView(this)
+        video.layoutParams=LinearLayout.LayoutParams(-1,(240*resources.displayMetrics.density).toInt())
+        val controller=MediaController(this)
+        controller.setAnchorView(video)
+        video.setMediaController(controller)
+        val dialog=AlertDialog.Builder(this).setTitle(media.optString("name","Video")).setView(video).setPositiveButton("Cerrar",null).create()
+        dialog.setOnDismissListener { video.stopPlayback() }
+        dialog.show()
+        video.setOnPreparedListener { video.start() }
+        video.setOnErrorListener { _,_,_ -> toast("No se pudo reproducir este video");true }
+        video.setVideoURI(Uri.parse(url),mapOf("Authorization" to "Bearer "+token))
+    }
+    private fun playAudio(media:JSONObject) {
+        val url=mediaUrl(media)
+        if(url==null){toast("Este audio no tiene una ruta válida");return}
         try{
             audioPlayer?.release()
             val player=MediaPlayer()
             audioPlayer=player
-            player.setDataSource(this,Uri.parse(baseUrl+path),mapOf("Authorization" to "Bearer "+token))
+            player.setDataSource(this,Uri.parse(url),mapOf("Authorization" to "Bearer "+token))
             player.setOnPreparedListener{it.start();toast("Reproduciendo "+media.optString("name","audio"))}
             player.setOnCompletionListener{it.release();if(audioPlayer===it)audioPlayer=null}
             player.setOnErrorListener{mp,_,_->mp.release();if(audioPlayer===mp)audioPlayer=null;toast("No se pudo reproducir este audio");true}

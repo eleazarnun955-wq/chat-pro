@@ -160,32 +160,54 @@ app.delete("/api/statuses/:id",auth,asyncRoute(async(q,r)=>{
 const storage=multer.diskStorage({destination:(_q,_f,cb)=>cb(null,uploadDir),filename:(_q,f,cb)=>cb(null,randomUUID()+path.extname(f.originalname).toLowerCase())});
 app.post("/api/uploads",auth,multer({storage,limits:{fileSize:MAX_UPLOAD_BYTES,files:1},fileFilter:(_q,f,cb)=>{
  const ext=path.extname(f.originalname).toLowerCase();
- cb(([".mp3",".wav",".m4a",".flac"].includes(ext)||/^(image|video|application)\//.test(f.mimetype))?null:new Error("Tipo de archivo no permitido"));
+ const allowedExtensions=new Set([".mp3",".wav",".m4a",".flac",".aac",".ogg",".opus",".amr",".png",".jpg",".jpeg",".gif",".webp",".bmp",".heic",".mp4",".m4v",".mov",".webm",".3gp",".mkv",".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".txt",".csv",".zip",".rar",".7z"]);
+ cb(allowedExtensions.has(ext)?null:new Error("Formato no permitido. Usa imágenes, videos, audio o documentos compatibles."));
 }}).single("file"),async(q,r)=>{
  try{
   if(!q.file)return r.status(400).json({error:"Falta el archivo"});
-  const objectName=randomUUID()+path.extname(q.file.originalname).toLowerCase();
+  const ext=path.extname(q.file.originalname).toLowerCase();
+  const objectName=randomUUID()+ext;
+  const mimeByExtension={".mp3":"audio/mpeg",".wav":"audio/wav",".m4a":"audio/mp4",".flac":"audio/flac",".aac":"audio/aac",".ogg":"audio/ogg",".opus":"audio/ogg",".amr":"audio/amr",".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg",".gif":"image/gif",".webp":"image/webp",".bmp":"image/bmp",".heic":"image/heic",".mp4":"video/mp4",".m4v":"video/mp4",".mov":"video/quicktime",".webm":"video/webm",".3gp":"video/3gpp",".mkv":"video/x-matroska",".pdf":"application/pdf",".doc":"application/msword",".docx":"application/vnd.openxmlformats-officedocument.wordprocessingml.document",".xls":"application/vnd.ms-excel",".xlsx":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",".ppt":"application/vnd.ms-powerpoint",".pptx":"application/vnd.openxmlformats-officedocument.presentationml.presentation",".txt":"text/plain",".csv":"text/csv",".zip":"application/zip",".rar":"application/vnd.rar",".7z":"application/x-7z-compressed"};
+  const contentType=q.file.mimetype&&q.file.mimetype!=="application/octet-stream"?q.file.mimetype:(mimeByExtension[ext]||"application/octet-stream");
   const buffer=fs.readFileSync(q.file.path);
-  await db.uploadMedia(objectName,buffer,q.file.mimetype);
+  await db.uploadMedia(objectName,buffer,contentType);
   fs.unlinkSync(q.file.path);
-  r.status(201).json({id:path.basename(objectName,path.extname(objectName)),name:q.file.originalname,size:q.file.size,mimeType:q.file.mimetype,downloadPath:"/api/uploads/"+encodeURIComponent(objectName)});
+  r.status(201).json({id:path.basename(objectName,ext),name:q.file.originalname,size:q.file.size,mimeType:contentType,downloadPath:"/api/uploads/"+encodeURIComponent(objectName)});
  }catch(e){if(q.file?.path&&fs.existsSync(q.file.path))fs.unlinkSync(q.file.path);console.error(e);r.status(500).json({error:"No se pudo guardar el archivo en Supabase Storage"})}
 });
 async function canReadUpload(uid,name){
- const plain="/api/uploads/"+name,encoded="/api/uploads/"+encodeURIComponent(name);
- const {data:profile,error:pe}=await db.supabase.from("profiles").select("id").or("avatar_url.ilike.%"+plain+",avatar_url.ilike.%"+encoded).limit(1);if(pe)throw pe;if(profile?.length)return true;
- const {data:rows,error}=await db.supabase.from("messages").select("conversation_id,media");if(error)throw error;
- for(const m of rows||[]){const p=m.media?.downloadPath;if((p===plain||p===encoded)&&await member(m.conversation_id,uid))return true}
- const {data:statuses,error:se}=await db.supabase.from("statuses").select("user_id,media_url,expires_at");if(se)throw se;
- return (statuses||[]).some(s=>new Date(s.expires_at).getTime()>Date.now()&&(s.media_url===plain||s.media_url===encoded));
+ const mediaPath="/api/uploads/"+name;
+ const {data:profile,error:pe}=await db.supabase.from("profiles").select("id").ilike("avatar_url","%"+mediaPath).limit(1);if(pe)throw pe;if(profile?.length)return true;
+ const {data:rows,error}=await db.supabase.from("messages").select("conversation_id").eq("media->>downloadPath",mediaPath).limit(20);if(error)throw error;
+ for(const m of rows||[])if(await member(m.conversation_id,uid))return true;
+ const {data:status,error:se}=await db.supabase.from("statuses").select("id").eq("media_url",mediaPath).gt("expires_at",new Date().toISOString()).limit(1);if(se)throw se;
+ return !!status?.length;
 }
 app.get("/api/uploads/:filename",auth,asyncRoute(async(q,r)=>{
  const name=path.basename(q.params.filename);
  if(!await canReadUpload(q.user.id,name))return r.sendStatus(403);
  const blob=await db.downloadMedia(name);
+ const buffer=Buffer.from(await blob.arrayBuffer());
+ const total=buffer.length;
+ const inline=q.query.inline==="1";
+ const safeName=name.replace(/["\\\r\n]/g,"_");
  r.setHeader("Content-Type",blob.type||"application/octet-stream");
- r.setHeader("Content-Disposition","attachment; filename="+JSON.stringify(name));
- r.send(Buffer.from(await blob.arrayBuffer()));
+ r.setHeader("Content-Disposition",(inline?"inline":"attachment")+"; filename="+JSON.stringify(safeName));
+ r.setHeader("Accept-Ranges","bytes");
+ r.setHeader("Cache-Control","private, no-store");
+ const range=q.headers.range;
+ if(range){
+  const match=/^bytes=(\d*)-(\d*)$/.exec(range);
+  if(!match)return r.status(416).set("Content-Range","bytes */"+total).end();
+  let start=match[1]?Number(match[1]):Math.max(0,total-Number(match[2]||0));
+  let end=match[2]&&match[1]?Number(match[2]):total-1;
+  if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||end<start||start>=total)return r.status(416).set("Content-Range","bytes */"+total).end();
+  end=Math.min(end,total-1);
+  r.status(206).set({"Content-Range":"bytes "+start+"-"+end+"/"+total,"Content-Length":String(end-start+1)}).send(buffer.subarray(start,end+1));
+  return;
+ }
+ r.setHeader("Content-Length",String(total));
+ r.status(200).send(buffer);
 }));
 
 const io=new Server(server,{cors:{origin:process.env.CORS_ORIGIN?.split(",")||"*",methods:["GET","POST"]},maxHttpBufferSize:1e6});
