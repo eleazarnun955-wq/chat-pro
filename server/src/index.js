@@ -27,20 +27,22 @@ const auth=asyncRoute(async(req,res,next)=>{
 app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.1.0",database:"supabase",features:["accounts","direct-messages","groups","media","history","profiles","statuses-24h"]}));
 
 app.post("/api/register",asyncRoute(async(q,r)=>{
- const name=clean(q.body?.name,40),username=clean(q.body?.username,24).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
- if(name.length<2||!/^[a-z0-9_.-]{3,24}$/.test(username)||password.length<8)return r.status(400).json({error:"Usa nombre, usuario de 3-24 caracteres y contraseña de al menos 8"});
- if(await db.findUserByUsername(username))return r.status(409).json({error:"Ese usuario ya existe"});
+ const name=clean(q.body?.name,40),email=clean(q.body?.email,254).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
+ if(name.length<2||!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)||password.length<8||password.length>128)return r.status(400).json({error:"Ingresa un nombre, un correo válido y una contraseña de 8 a 128 caracteres"});
+ if(await db.findUserByEmail(email))return r.status(409).json({error:"Ese correo ya está registrado"});
+ const base=(email.split("@")[0].toLowerCase().replace(/[^a-z0-9_.-]/g,"").slice(0,15)||"usuario");
+ const username=(base+"_"+randomUUID().replace(/-/g,"").slice(0,8)).slice(0,24);
  const id=randomUUID(),salt=randomUUID(),hash=scryptSync(password,salt,64).toString("hex");
- const profile=await db.registerUser({id,name,username,salt,hash});
+ const profile=await db.registerUser({id,name,username,email,salt,hash});
  const token=randomUUID()+randomUUID();await db.createSession(token,id);
  r.status(201).json({token,user:db.publicUser(profile)});
 }));
 app.post("/api/login",asyncRoute(async(q,r)=>{
- const username=clean(q.body?.username,24).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
- const u=await db.findUserByUsername(username);
- if(!u||!u.salt||!u.hash)return r.status(401).json({error:"Usuario o contraseña incorrectos"});
+ const email=clean(q.body?.email,254).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
+ const u=await db.findUserByEmail(email);
+ if(!u||!u.salt||!u.hash)return r.status(401).json({error:"Correo o contraseña incorrectos"});
  const hash=scryptSync(password,u.salt,64);
- if(!timingSafeEqual(hash,Buffer.from(u.hash,"hex")))return r.status(401).json({error:"Usuario o contraseña incorrectos"});
+ if(!timingSafeEqual(hash,Buffer.from(u.hash,"hex")))return r.status(401).json({error:"Correo o contraseña incorrectos"});
  const token=randomUUID()+randomUUID();await db.createSession(token,u.id);
  r.json({token,user:db.publicUser(u)});
 }));
@@ -212,5 +214,5 @@ io.on("connection",socket=>{
  socket.on("room:join",({roomId}={})=>{if(process.env.ALLOW_LEGACY_ROOMS!=="false"||!roomId)return;});
  socket.on("disconnect",()=>{if(user){db.updateLastSeen(user.id).catch(console.error);io.emit("presence:changed",{userId:user.id,online:false,lastSeenAt:new Date().toISOString()})}if(socket.data.conversationId)socket.to(socket.data.conversationId).emit("presence:left",{user:user?db.publicUser(user):null})});
 });
-app.use((err,_q,r,_next)=>{console.error(err);r.status(err instanceof multer.MulterError?413:400).json({error:err.message||"Error al procesar la solicitud"})});
+app.use((err,_q,r,_next)=>{console.error(err);r.status(err.status||(err instanceof multer.MulterError?413:400)).json({error:err.message||"Error al procesar la solicitud"})});
 db.verifyConnection().then(()=>server.listen(PORT,"0.0.0.0",()=>console.log("CHAT PRO 2 connected to Supabase and listening on "+PORT))).catch(error=>{console.error("CHAT PRO Supabase connection failed:",error);process.exit(1)});
