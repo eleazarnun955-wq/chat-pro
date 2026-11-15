@@ -45,6 +45,18 @@ app.post("/api/login",asyncRoute(async(q,r)=>{
  r.json({token,user:db.publicUser(u)});
 }));
 app.post("/api/logout",auth,asyncRoute(async(q,r)=>{await db.deleteSession(q.token);r.json({ok:true})}));
+app.post("/api/me/password",auth,asyncRoute(async(q,r)=>{
+ const current=typeof q.body?.currentPassword==="string"?q.body.currentPassword:"";
+ const next=typeof q.body?.newPassword==="string"?q.body.newPassword:"";
+ if(next.length<8)return r.status(400).json({error:"La nueva contraseña debe tener al menos 8 caracteres"});
+ const stored=await db.findUserById(q.user.id);
+ if(!stored?.salt||!stored?.hash)return r.status(400).json({error:"No se pudo validar la contraseña actual"});
+ const candidate=scryptSync(current,stored.salt,64);
+ if(!timingSafeEqual(candidate,Buffer.from(stored.hash,"hex")))return r.status(401).json({error:"La contraseña actual no es correcta"});
+ const salt=randomUUID(),hash=scryptSync(next,salt,64).toString("hex");
+ await db.updatePassword(q.user.id,salt,hash,q.token);
+ r.json({ok:true,message:"Contraseña actualizada. Las demás sesiones se cerraron."});
+}));
 app.get("/api/me",auth,(q,r)=>r.json({user:db.publicUser(q.user)}));
 app.patch("/api/me",auth,asyncRoute(async(q,r)=>{
  const updated=await db.updateUser(q.user.id,{name:clean(q.body?.name,40),about:clean(q.body?.about,140),avatarUrl:clean(q.body?.avatarUrl,500)});
