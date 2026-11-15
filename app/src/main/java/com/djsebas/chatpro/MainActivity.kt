@@ -408,9 +408,21 @@ class MainActivity : Activity() {
         content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
         content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
         content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
+        content.addView(action("Vincular correo electrónico a esta cuenta"){showLinkEmailDialog()})
         content.addView(action("Cambiar contraseña"){showChangePasswordDialog()})
         content.addView(action("Personalizar apariencia"){showAppearance()})
         content.addView(action("Cambiar servidor"){configureServer()})
+    }
+    private fun showLinkEmailDialog() {
+        val email=field("Correo electrónico")
+        email.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+        val password=field("Contraseña actual")
+        password.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(email);addView(password)}
+        AlertDialog.Builder(this).setTitle("Vincular correo a tu cuenta").setMessage("Confirma tu contraseña actual para asociar tu correo.")
+            .setView(box).setNegativeButton("Cancelar",null).setPositiveButton("Vincular"){_,_->
+                api("POST","/api/me/email",JSONObject().put("email",email.text.toString()).put("currentPassword",password.text.toString()),{toast("Correo vinculado. Ya puedes entrar con tu correo.");showHome("Perfil")},{toast(it)})
+            }.show()
     }
     private fun showChangePasswordDialog() {
         val current=field("Contraseña actual")
