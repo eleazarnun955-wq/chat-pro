@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.Intent
+import android.media.MediaPlayer
 import android.content.Context
 import android.graphics.Color
 import android.graphics.BitmapFactory
@@ -46,6 +47,7 @@ class MainActivity : Activity() {
     private var pendingStatusCaption=""
     private var pendingWallpaperKey="home_wallpaper"
     private var socket:Socket?=null
+    private var audioPlayer:MediaPlayer?=null
     private lateinit var root:LinearLayout
     private lateinit var content:LinearLayout
     private lateinit var header:TextView
@@ -159,22 +161,22 @@ class MainActivity : Activity() {
             }
         },{header.text=it})
     }
-    private fun createPublicRoomDialog() {
+    private fun createRoomDialog(visibility:String) {
         val title=field("Nombre de la sala")
         val description=field("Descripción (opcional)")
         val users=field("Usuarios iniciales separados por coma (opcional)")
         val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(title);addView(description);addView(users)}
-        AlertDialog.Builder(this).setTitle("Crear sala pública").setMessage("Cualquier usuario podrá encontrarla y unirse.").setView(box)
+        AlertDialog.Builder(this).setTitle(if(visibility=="public")"Crear sala pública" else "Crear sala privada").setMessage(if(visibility=="public")"Cualquier usuario podrá encontrarla y unirse." else "Solo tú y las personas invitadas podrán verla.").setView(box)
             .setNegativeButton("Cancelar",null).setPositiveButton("Crear"){_,_->
                 if(title.text.toString().trim().length<3){toast("Pon un nombre de al menos 3 caracteres");return@setPositiveButton}
                 val names=users.text.toString().split(",").map{it.trim().removePrefix("@")}.filter{it.matches(Regex("[a-zA-Z0-9_.-]{3,24}"))}.distinct()
-                val body=JSONObject().put("type","room").put("visibility","public").put("title",title.text.toString()).put("description",description.text.toString()).put("usernames",JSONArray(names))
+                val body=JSONObject().put("type","room").put("visibility",visibility).put("title",title.text.toString()).put("description",description.text.toString()).put("usernames",JSONArray(names))
                 api("POST","/api/conversations",body,{data->val room=data.optJSONObject("conversation")?:return@api;openConversation(room.optString("id"),room.optString("title","Sala"))},{header.text=it})
             }.show()
     }
     private fun showPublicRooms() {
         content.removeAllViews();header.text="Salas públicas · puedes unirte o abrir las que ya frecuentas"
-        content.addView(action("＋ Crear sala pública"){createPublicRoomDialog()})
+        content.addView(action("＋ Crear sala pública"){createRoomDialog("public")})
         api("GET","/api/rooms",null,{data->
             val rooms=data.optJSONArray("rooms")?:JSONArray()
             if(rooms.length()==0)content.addView(note("Todavía no hay salas públicas. ¡Crea la primera!"))
@@ -194,7 +196,8 @@ class MainActivity : Activity() {
     private fun showContacts() {
         content.removeAllViews();header.text="Busca usuarios para iniciar una conversación"
         content.addView(action("＋ Crear grupo"){createGroupDialog()})
-        content.addView(action("＋ Crear sala pública"){createPublicRoomDialog()})
+        content.addView(action("＋ Crear sala pública"){createRoomDialog("public")})
+        content.addView(action("＋ Crear sala privada"){createRoomDialog("private")})
         content.addView(action("Explorar salas públicas"){showPublicRooms()})
         val q=field("Buscar por nombre o usuario");content.addView(q)
         val result=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};content.addView(result)
@@ -244,6 +247,7 @@ class MainActivity : Activity() {
         row.addView(action("Enviar"){sendMessage()},LinearLayout.LayoutParams(85,52))
         root.addView(row)
         root.addView(action("Cambiar fondo de este chat"){chooseWallpaper("chat_wallpaper_"+id)})
+        root.addView(action("Agregar integrante al grupo o sala privada"){addConversationMemberDialog(id)})
         applyWallpaper("chat_wallpaper_"+id)
         api("GET","/api/conversations/$id/messages",null,{data->
             content.removeAllViews()
@@ -252,6 +256,22 @@ class MainActivity : Activity() {
             api("POST","/api/conversations/$id/read",JSONObject(),{},{})
             header.text="Conectando al chat en tiempo real…";connectConversation()
         },{header.text=it})
+    }
+    private fun addConversationMemberDialog(conversationId:String) {
+        val username=field("Nombre de usuario a invitar")
+        AlertDialog.Builder(this).setTitle("Agregar integrante").setMessage("Solo el creador del grupo o sala puede agregar participantes.").setView(username)
+            .setNegativeButton("Cancelar",null).setPositiveButton("Buscar e invitar"){_,_->
+                val term=username.text.toString().trim().removePrefix("@").lowercase()
+                if(!term.matches(Regex("[a-z0-9_.-]{3,24}"))){toast("Escribe un usuario válido");return@setPositiveButton}
+                api("GET","/api/users/search?q="+Uri.encode(term),null,{data->
+                    val users=data.optJSONArray("users")?:JSONArray()
+                    var found:JSONObject?=null
+                    for(i in 0 until users.length()){val u=users.optJSONObject(i)?:continue;if(u.optString("username").equals(term,true)){found=u;break}}
+                    val user=found
+                    if(user==null){toast("No se encontró @"+term);return@api}
+                    api("POST","/api/conversations/$conversationId/members",JSONObject().put("userId",user.optString("id")),{toast("@$term fue agregado")},{toast(it)})
+                },{toast(it)})
+            }.show()
     }
     private fun connectConversation() {
         try {
@@ -289,7 +309,11 @@ class MainActivity : Activity() {
         val receipt=if(mine){when{obj.optString("readAt").isNotBlank()->"  ✓✓";obj.optString("deliveredAt").isNotBlank()->"  ✓✓";else->"  ✓"}}else ""
         if(text.isNotBlank())content.addView(note("$who: $text$receipt"))
         val media=obj.optJSONObject("media")
-        if(media!=null)content.addView(action("⬇  Descargar: ${media.optString("name","Archivo")}"){downloadMedia(media)})
+        if(media!=null){
+            val mediaName=media.optString("name","Archivo")
+            if(media.optString("mimeType").startsWith("audio/"))content.addView(action("▶  Reproducir: $mediaName"){playAudio(media)})
+            content.addView(action("⬇  Descargar: $mediaName"){downloadMedia(media)})
+        }
         val reactions=obj.optJSONArray("reactions")?:JSONArray()
         val summary=(0 until reactions.length()).mapNotNull{reactions.optJSONObject(it)?.optString("reaction")}.groupingBy{it}.eachCount().entries.joinToString("  "){"${it.key} ${it.value}"}
         if(summary.isNotBlank())content.addView(note("Reacciones: $summary"))
@@ -311,6 +335,20 @@ class MainActivity : Activity() {
             val arr=data.optJSONArray("messages")?:JSONArray()
             for(i in 0 until arr.length())renderConversationMessage(arr.optJSONObject(i)?:continue)
         },{header.text=it})
+    }
+    private fun playAudio(media:JSONObject) {
+        val path=media.optString("downloadPath")
+        if(!path.startsWith("/api/uploads/")){toast("Este audio no tiene una ruta válida");return}
+        try{
+            audioPlayer?.release()
+            val player=MediaPlayer()
+            audioPlayer=player
+            player.setDataSource(this,Uri.parse(baseUrl+path),mapOf("Authorization" to "Bearer "+token))
+            player.setOnPreparedListener{it.start();toast("Reproduciendo "+media.optString("name","audio"))}
+            player.setOnCompletionListener{it.release();if(audioPlayer===it)audioPlayer=null}
+            player.setOnErrorListener{mp,_,_->mp.release();if(audioPlayer===mp)audioPlayer=null;toast("No se pudo reproducir este audio");true}
+            player.prepareAsync()
+        }catch(e:Exception){audioPlayer?.release();audioPlayer=null;toast("Error de reproducción: ${e.message}")}
     }
     private fun downloadMedia(media:JSONObject) {
         val path=media.optString("downloadPath")
@@ -353,6 +391,9 @@ class MainActivity : Activity() {
                     },{toast(it)})
                     else api("POST","/api/statuses/${s.optString("id")}/views",JSONObject(),{toast("Vista registrada")},{toast(it)})
                 })
+                val statusMedia=s.optJSONObject("media")
+                if(statusMedia!=null)content.addView(action("⬇ Descargar archivo del estado"){downloadMedia(statusMedia)})
+                if(ownerId==me.optString("id"))content.addView(action("Eliminar mi estado"){api("DELETE","/api/statuses/${s.optString("id")}",null,{toast("Estado eliminado");showHome("Estados")},{toast(it)})})
             }
         },{header.text=it})
     }
@@ -486,5 +527,5 @@ class MainActivity : Activity() {
         val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(2,5,2,7);layoutParams=lp
     }
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
-    override fun onDestroy(){socket?.disconnect();socket?.off();super.onDestroy()}
+    override fun onDestroy(){socket?.disconnect();socket?.off();audioPlayer?.release();audioPlayer=null;super.onDestroy()}
 }
