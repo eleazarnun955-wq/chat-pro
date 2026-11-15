@@ -25,10 +25,32 @@ export async function findUserByUsername(username) {
   const { data: cred, error: ce } = await supabase.from("app_credentials").select("password_salt,password_hash").eq("user_id", data.id).maybeSingle(); fail(ce);
   return { ...data, salt: cred?.password_salt, hash: cred?.password_hash };
 }
-export async function registerUser({ id, name, username, salt, hash }) {
+export async function findUserByEmail(email) {
+  const normalized = String(email || "").trim().toLowerCase();
+  const { data, error } = await supabase.from("private_user_contacts").select("user_id").eq("email", normalized).maybeSingle(); fail(error);
+  return data ? findUserById(data.user_id) : null;
+}
+export async function setUserEmail(userId, email) {
+  const { error } = await supabase.from("private_user_contacts").upsert({ user_id: userId, email }, { onConflict: "user_id" });
+  if (error?.code === "23505") throw Object.assign(new Error("Ese correo ya está registrado"), { status: 409 });
+  fail(error);
+}
+export async function registerUser({ id, name, username, email, salt, hash }) {
   const { data, error } = await supabase.from("profiles").insert({ id, username, display_name: name }).select("*").single(); fail(error);
-  const { error: ce } = await supabase.from("app_credentials").insert({ user_id: id, password_salt: salt, password_hash: hash }); fail(ce);
-  return data;
+  try {
+    const { error: contactError } = await supabase.from("private_user_contacts").insert({ user_id: id, email });
+    if (contactError) {
+      if (contactError.code === "23505") throw Object.assign(new Error("Ese correo ya está registrado"), { status: 409 });
+      throw new Error(contactError.message || "No se pudo guardar el correo");
+    }
+    const { error: credentialError } = await supabase.from("app_credentials").insert({ user_id: id, password_salt: salt, password_hash: hash });
+    fail(credentialError);
+    return data;
+  } catch (error) {
+    await supabase.from("private_user_contacts").delete().eq("user_id", id);
+    await supabase.from("profiles").delete().eq("id", id);
+    throw error;
+  }
 }
 export async function updateUser(id, patch) {
   const values = {};

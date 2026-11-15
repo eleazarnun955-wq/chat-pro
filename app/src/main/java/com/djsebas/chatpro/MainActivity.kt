@@ -83,16 +83,17 @@ class MainActivity : Activity() {
     private fun showAuth() {
         frame("CHAT PRO","Mensajería privada · cuentas y perfiles")
         val name=field("Nombre visible")
-        val username=field("Usuario")
+        val email=field("Correo electrónico")
+        email.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
         val password=field("Contraseña (mínimo 8 caracteres)")
         password.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-        content.addView(name);content.addView(username);content.addView(password)
+        content.addView(name);content.addView(email);content.addView(password)
         val actions=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        actions.addView(action("Crear cuenta"){authRequest("/api/register",JSONObject().put("name",name.text.toString()).put("username",username.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
-        actions.addView(action("Iniciar sesión"){authRequest("/api/login",JSONObject().put("username",username.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
+        actions.addView(action("Crear cuenta"){authRequest("/api/register",JSONObject().put("name",name.text.toString()).put("email",email.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
+        actions.addView(action("Iniciar sesión"){authRequest("/api/login",JSONObject().put("email",email.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
         content.addView(actions)
         content.addView(action("Configurar servidor"){configureServer()})
-        header.text="Crea una cuenta o inicia sesión. Cada persona necesita su propio usuario."
+        header.text="Regístrate e inicia sesión únicamente con tu correo electrónico y contraseña."
     }
     private fun authRequest(path:String,body:JSONObject) {
         header.text="Conectando…"
@@ -407,9 +408,21 @@ class MainActivity : Activity() {
         content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
         content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
         content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
+        content.addView(action("Vincular correo electrónico a esta cuenta"){showLinkEmailDialog()})
         content.addView(action("Cambiar contraseña"){showChangePasswordDialog()})
         content.addView(action("Personalizar apariencia"){showAppearance()})
         content.addView(action("Cambiar servidor"){configureServer()})
+    }
+    private fun showLinkEmailDialog() {
+        val email=field("Correo electrónico")
+        email.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+        val password=field("Contraseña actual")
+        password.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(email);addView(password)}
+        AlertDialog.Builder(this).setTitle("Vincular correo a tu cuenta").setMessage("Confirma tu contraseña actual para asociar tu correo.")
+            .setView(box).setNegativeButton("Cancelar",null).setPositiveButton("Vincular"){_,_->
+                api("POST","/api/me/email",JSONObject().put("email",email.text.toString()).put("currentPassword",password.text.toString()),{toast("Correo vinculado. Ya puedes entrar con tu correo.");showHome("Perfil")},{toast(it)})
+            }.show()
     }
     private fun showChangePasswordDialog() {
         val current=field("Contraseña actual")
