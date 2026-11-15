@@ -29,7 +29,8 @@ class MainActivity : Activity() {
     private val panel=Color.rgb(25,30,49)
     private val accent=Color.rgb(154,111,255)
     private val http=OkHttpClient.Builder().connectTimeout(25,TimeUnit.SECONDS).readTimeout(90,TimeUnit.SECONDS).build()
-    private var baseUrl="https://chat-pro-server-qhjw.onrender.com"
+    private val defaultBaseUrl="https://chat-pro-server-qhjw.onrender.com"
+    private var baseUrl=defaultBaseUrl
     private var token=""
     private var me=JSONObject()
     private var currentConversation=""
@@ -47,7 +48,11 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor=bg;window.navigationBarColor=bg
         val p=getSharedPreferences("chatpro",MODE_PRIVATE)
-        baseUrl=p.getString("server_url",baseUrl)?:baseUrl
+        val savedServer=p.getString("server_url",defaultBaseUrl)?:defaultBaseUrl
+        baseUrl=try { normalizeServerUrl(savedServer) } catch (_:Exception) {
+            p.edit().remove("server_url").apply()
+            defaultBaseUrl
+        }
         token=p.getString("token","")?:""
         if(token.isNotBlank()) loadMe() else showAuth()
     }
@@ -393,9 +398,24 @@ class MainActivity : Activity() {
             }catch(e:Exception){runOnUiThread{header.text=e.message?:"Error de subida"}}
         }.start()
     }
+    private fun normalizeServerUrl(value:String):String {
+        val raw=value.trim().trimEnd('/')
+        require(raw.isNotBlank() && !raw.startsWith("/")) { "La dirección del servidor debe ser una URL completa." }
+        val candidate=if(raw.startsWith("https://",true)||raw.startsWith("http://",true)) raw else "https://$raw"
+        val parsed=Uri.parse(candidate)
+        require(parsed.scheme=="https" || parsed.scheme=="http") { "El servidor debe comenzar con https:// o http://" }
+        require(!parsed.host.isNullOrBlank()) { "La dirección del servidor no es válida." }
+        return candidate
+    }
     private fun configureServer() {
         val input=field(baseUrl)
-        AlertDialog.Builder(this).setTitle("Servidor CHAT PRO").setView(input).setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->baseUrl=input.text.toString().trim().trimEnd('/');getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("server_url",baseUrl).apply();if(token.isBlank())showAuth()else showHome("Chats")}.show()
+        AlertDialog.Builder(this).setTitle("Servidor CHAT PRO").setView(input).setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->
+            try {
+                baseUrl=normalizeServerUrl(input.text.toString())
+                getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("server_url",baseUrl).apply()
+                if(token.isBlank())showAuth()else showHome("Chats")
+            } catch(e:Exception) { toast(e.message?: "Dirección de servidor no válida") }
+        }.show()
     }
     private fun field(hint:String)=EditText(this).apply{this.hint=hint;setHintTextColor(Color.GRAY);setTextColor(Color.WHITE);setPadding(12,8,12,8);setBackgroundColor(panel);textSize=14f}
     private fun action(label:String,click:()->Unit)=Button(this).apply{text=label;setTextColor(Color.WHITE);setBackgroundColor(panel);textSize=13f;setOnClickListener{click()}}
