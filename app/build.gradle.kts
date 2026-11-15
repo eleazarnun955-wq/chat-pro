@@ -7,7 +7,7 @@ android {
     compileSdk = 35
     defaultConfig {
         // New application ID keeps this build separate from previously installed CHAT PRO packages.
-        applicationId = "com.djsebas.chatpro.v3"
+        applicationId = "com.djsebas.chatpro.v150"
         minSdk = 23
         targetSdk = 35
         versionCode = 6
