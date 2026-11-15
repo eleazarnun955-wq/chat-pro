@@ -190,6 +190,10 @@ io.on("connection",socket=>{
    if(payload.media&&typeof payload.media==="object"){const m=payload.media,p=clean(m.downloadPath,500);if(!p.startsWith("/api/uploads/"))return;media={name:clean(m.name,180)||"Archivo",mimeType:clean(m.mimeType,100)||"application/octet-stream",size:Number(m.size)||0,downloadPath:p}}
    if(!text&&!media)return;
    const item=await db.createMessage({id:randomUUID(),conversationId:id,senderId:user.id,text,media});
+   const activeSockets=await io.in(id).fetchSockets();
+   if(activeSockets.some(s=>s.data.user?.id&&s.data.user.id!==user.id)){
+    await db.markMessageDelivered(item.id,id,user.id);item.deliveredAt=new Date().toISOString();
+   }
    io.to(id).emit("conversation:message",item);
   }catch(e){socket.emit("chat:error",{message:"No se pudo enviar el mensaje"})}
  });
