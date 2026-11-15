@@ -17,11 +17,32 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
-      - name: Upload APK
+      - name: Prepare permanent signing key
+        env:
+          CHAT_PRO_KEYSTORE_BASE64: ${{ secrets.CHAT_PRO_KEYSTORE_BASE64 }}
+          CHAT_PRO_STORE_PASSWORD: ${{ secrets.CHAT_PRO_STORE_PASSWORD }}
+          CHAT_PRO_KEY_ALIAS: ${{ secrets.CHAT_PRO_KEY_ALIAS }}
+          CHAT_PRO_KEY_PASSWORD: ${{ secrets.CHAT_PRO_KEY_PASSWORD }}
+        run: |
+          test -n "$CHAT_PRO_KEYSTORE_BASE64" || (echo "Missing CHAT_PRO_KEYSTORE_BASE64 repository secret" && exit 1)
+          test -n "$CHAT_PRO_STORE_PASSWORD" || (echo "Missing CHAT_PRO_STORE_PASSWORD repository secret" && exit 1)
+          test -n "$CHAT_PRO_KEY_ALIAS" || (echo "Missing CHAT_PRO_KEY_ALIAS repository secret" && exit 1)
+          test -n "$CHAT_PRO_KEY_PASSWORD" || (echo "Missing CHAT_PRO_KEY_PASSWORD repository secret" && exit 1)
+          echo "$CHAT_PRO_KEYSTORE_BASE64" | base64 --decode > chat-pro-release.jks
+          echo "CHAT_PRO_KEYSTORE_PATH=$GITHUB_WORKSPACE/chat-pro-release.jks" >> "$GITHUB_ENV"
+          echo "CHAT_PRO_STORE_PASSWORD=$CHAT_PRO_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "CHAT_PRO_KEY_ALIAS=$CHAT_PRO_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "CHAT_PRO_KEY_PASSWORD=$CHAT_PRO_KEY_PASSWORD" >> "$GITHUB_ENV"
+      - name: Build signed release APK
+        run: gradle --no-daemon assembleRelease
+      - name: Verify APK signature
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          apksigner verify --verbose "$APK"
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: CHAT-PRO-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+          name: CHAT-PRO-release
+          path: app/build/outputs/apk/release/app-release.apk
+          retention-days: 90
