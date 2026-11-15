@@ -26,14 +26,62 @@ const auth=asyncRoute(async(req,res,next)=>{
 });
 app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.1.0",database:"supabase",features:["accounts","direct-messages","groups","media","history","profiles","statuses-24h"]}));
 
-app.post("/api/register",asyncRoute(async(q,r)=>{
+const authFinalizeAttempts=new Map();
+function rateLimited(key,max=8,windowMs=15*60*1000){
+ const now=Date.now(),entry=authFinalizeAttempts.get(key);
+ if(!entry||now-entry.start>windowMs){authFinalizeAttempts.set(key,{start:now,count:1});return false;}
+ entry.count++;return entry.count>max;
+}
+async function verifiedContact(accessToken,method,contactRaw){
+ const {data,error}=await db.supabase.auth.getUser(accessToken);
+ if(error||!data?.user)throw Object.assign(new Error("La verificación de Supabase no es válida o expiró"),{status:401});
+ const user=data.user,contact=clean(contactRaw,254).trim();
+ if(method==="email"){
+  const email=(user.email||"").toLowerCase();
+  if(!user.email_confirmed_at||email!==contact.toLowerCase())throw Object.assign(new Error("Debes verificar el mismo correo que estás registrando"),{status:403});
+  return {user,email,phone:null};
+ }
+ if(method==="phone"){
+  const phone=user.phone||"";
+  if(!user.phone_confirmed_at||phone!==contact)throw Object.assign(new Error("Debes verificar el mismo celular que estás registrando"),{status:403});
+  return {user,email:null,phone};
+ }
+ throw Object.assign(new Error("Método de verificación no válido"),{status:400});
+}
+app.post("/api/register",(_q,r)=>r.status(410).json({error:"El registro ahora requiere verificar correo o celular. Actualiza CHAT PRO para crear una cuenta."}));
+app.post("/api/register/complete",asyncRoute(async(q,r)=>{
+ const ip=q.ip||q.socket.remoteAddress||"unknown";
+ if(rateLimited("register:"+ip,8))return r.status(429).json({error:"Demasiados intentos. Espera 15 minutos."});
+ const accessToken=(q.headers.authorization||"").replace(/^Bearer\\s+/i,"");
+ if(!accessToken)return r.status(401).json({error:"Falta la sesión verificada"});
  const name=clean(q.body?.name,40),username=clean(q.body?.username,24).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
  if(name.length<2||!/^[a-z0-9_.-]{3,24}$/.test(username)||password.length<8)return r.status(400).json({error:"Usa nombre, usuario de 3-24 caracteres y contraseña de al menos 8"});
- if(await db.findUserByUsername(username))return r.status(409).json({error:"Ese usuario ya existe"});
- const id=randomUUID(),salt=randomUUID(),hash=scryptSync(password,salt,64).toString("hex");
- const profile=await db.registerUser({id,name,username,salt,hash});
- const token=randomUUID()+randomUUID();await db.createSession(token,id);
+ const {user,email,phone}=await verifiedContact(accessToken,q.body?.method,q.body?.contact);
+ const existing=await db.findUserById(user.id);
+ if(existing?.hash){
+  if(existing.username!==username)return r.status(409).json({error:"Esta cuenta ya está registrada con otro usuario"});
+  const token=randomUUID()+randomUUID();await db.createSession(token,user.id);
+  return r.status(200).json({token,user:db.publicUser(existing)});
+ }
+ if(await db.findUserByUsername(username))return r.status(409).json({error:"Ese nombre de usuario ya existe"});
+ if(await db.findUserByContact(q.body?.method,email||phone))return r.status(409).json({error:"Ese correo o celular ya está asociado a otra cuenta"});
+ const salt=randomUUID(),hash=scryptSync(password,salt,64).toString("hex");
+ const profile=await db.registerUser({id:user.id,name,username,salt,hash,email,phone});
+ const token=randomUUID()+randomUUID();await db.createSession(token,user.id);
  r.status(201).json({token,user:db.publicUser(profile)});
+}));
+app.post("/api/recovery/complete",asyncRoute(async(q,r)=>{
+ const accessToken=(q.headers.authorization||"").replace(/^Bearer\\s+/i,"");
+ if(!accessToken)return r.status(401).json({error:"Falta la sesión verificada"});
+ const method=q.body?.method,contact=clean(q.body?.contact,254),newPassword=typeof q.body?.newPassword==="string"?q.body.newPassword:"";
+ if(newPassword.length<8)return r.status(400).json({error:"La contraseña debe tener al menos 8 caracteres"});
+ const {user,email,phone}=await verifiedContact(accessToken,method,contact);
+ const profile=await db.findUserByContact(method,email||phone);
+ if(!profile||profile.id!==user.id)return r.status(404).json({error:"No existe una cuenta CHAT PRO vinculada a ese contacto verificado"});
+ const salt=randomUUID(),hash=scryptSync(newPassword,salt,64).toString("hex");
+ await db.updatePasswordForUser(user.id,salt,hash);
+ const token=randomUUID()+randomUUID();await db.createSession(token,user.id);
+ r.json({token,user:db.publicUser(await db.findUserById(user.id))});
 }));
 app.post("/api/login",asyncRoute(async(q,r)=>{
  const username=clean(q.body?.username,24).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
