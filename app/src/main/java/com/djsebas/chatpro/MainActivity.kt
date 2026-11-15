@@ -6,6 +6,9 @@ import android.app.DownloadManager
 import android.content.Intent
 import android.content.Context
 import android.graphics.Color
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -37,6 +40,7 @@ class MainActivity : Activity() {
     private var currentTitle=""
     private var uploadMode="chat"
     private var pendingStatusCaption=""
+    private var pendingWallpaperKey="home_wallpaper"
     private var socket:Socket?=null
     private lateinit var root:LinearLayout
     private lateinit var content:LinearLayout
@@ -67,6 +71,7 @@ class MainActivity : Activity() {
         content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(2,4,2,10)}
         scroll.addView(content);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         setContentView(root)
+        applyWallpaper("home_wallpaper")
     }
     private fun showAuth() {
         frame("CHAT PRO","Mensajería privada · cuentas y perfiles")
@@ -124,6 +129,7 @@ class MainActivity : Activity() {
         val nav=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
         listOf("Chats","Contactos","Salas","Estados","Perfil").forEach{t->nav.addView(action(t){showHome(t)},LinearLayout.LayoutParams(0,48,1f))}
         root.addView(nav,1)
+        root.addView(action("Cambiar fondo principal"){chooseWallpaper("home_wallpaper")},2)
         when(tab){
             "Chats"->loadConversations()
             "Contactos"->showContacts()
@@ -232,6 +238,8 @@ class MainActivity : Activity() {
         row.addView(composer,LinearLayout.LayoutParams(0,52,1f))
         row.addView(action("Enviar"){sendMessage()},LinearLayout.LayoutParams(85,52))
         root.addView(row)
+        root.addView(action("Cambiar fondo de este chat"){chooseWallpaper("chat_wallpaper_"+id)})
+        applyWallpaper("chat_wallpaper_"+id)
         api("GET","/api/conversations/$id/messages",null,{data->
             content.removeAllViews()
             val arr=data.optJSONArray("messages")?:JSONArray()
@@ -361,8 +369,9 @@ class MainActivity : Activity() {
     @Deprecated("Android compatibility")
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
         super.onActivityResult(requestCode,resultCode,data)
-        if(requestCode !in listOf(42,43,44)||resultCode!=RESULT_OK)return
+        if(requestCode !in listOf(42,43,44,45)||resultCode!=RESULT_OK)return
         val uri=data?.data?:return
+        if(requestCode==45){ try { contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION); getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString(pendingWallpaperKey,uri.toString()).apply(); applyWallpaper(pendingWallpaperKey); toast("Fondo actualizado") } catch(_:Exception){toast("No se pudo guardar el fondo")}; return }
         val name=uri.lastPathSegment?.substringAfterLast('/')?:"archivo"
         val mime=contentResolver.getType(uri)?:"application/octet-stream"
         header.text="Subiendo $name…"
@@ -418,7 +427,18 @@ class MainActivity : Activity() {
         }.show()
     }
     private fun field(hint:String)=EditText(this).apply{this.hint=hint;setHintTextColor(Color.GRAY);setTextColor(Color.WHITE);setPadding(12,8,12,8);setBackgroundColor(panel);textSize=14f}
-    private fun action(label:String,click:()->Unit)=Button(this).apply{text=label;setTextColor(Color.WHITE);setBackgroundColor(panel);textSize=13f;setOnClickListener{click()}}
+    private fun chooseWallpaper(key:String) {
+        pendingWallpaperKey=key
+        val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="image/*"; addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) }
+        startActivityForResult(pick,45)
+    }
+    private fun applyWallpaper(key:String) {
+        val raw=getSharedPreferences("chatpro",MODE_PRIVATE).getString(key,null)
+        if(raw.isNullOrBlank()){root.setBackgroundColor(bg);return}
+        try { val bitmap=contentResolver.openInputStream(Uri.parse(raw))?.use { BitmapFactory.decodeStream(it) }; if(bitmap!=null) root.background=BitmapDrawable(resources,bitmap) else root.setBackgroundColor(bg) } catch(_:Exception){root.setBackgroundColor(bg)}
+    }
+    private fun field(hint:String)=EditText(this).apply{this.hint=hint;setHintTextColor(Color.LTGRAY);setTextColor(Color.WHITE);setPadding(16,12,16,12);minHeight=56;textSize=16f;setBackground(GradientDrawable().apply{setColor(panel);cornerRadius=18f;setStroke(1,Color.rgb(65,75,100))})}
+    private fun action(label:String,click:()->Unit)=Button(this).apply{text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=58;setPadding(16,12,16,12);stateListAnimator=null;setBackground(GradientDrawable().apply{setColor(panel);cornerRadius=18f;setStroke(1,Color.rgb(75,88,115))});setOnClickListener{click()}}
     private fun note(value:String)=TextView(this).apply{text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(12,12,12,12)}
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
     override fun onDestroy(){socket?.disconnect();socket?.off();super.onDestroy()}
