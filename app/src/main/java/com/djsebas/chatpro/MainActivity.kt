@@ -30,7 +30,7 @@ import io.socket.client.Socket
 class MainActivity : Activity() {
     private val bg=Color.rgb(13,16,29)
     private val panel=Color.rgb(25,30,49)
-    private val accent=Color.rgb(154,111,255)
+    private var accent=Color.rgb(154,111,255)
     private val http=OkHttpClient.Builder().connectTimeout(25,TimeUnit.SECONDS).readTimeout(90,TimeUnit.SECONDS).build()
     private val defaultBaseUrl="https://chat-pro-server-qhjw.onrender.com"
     private var baseUrl=defaultBaseUrl
@@ -57,6 +57,7 @@ class MainActivity : Activity() {
             p.edit().remove("server_url").apply()
             defaultBaseUrl
         }
+        accent=p.getInt("accent_color",Color.rgb(154,111,255))
         token=p.getString("token","")?:""
         if(token.isNotBlank()) loadMe() else showAuth()
     }
@@ -360,7 +361,23 @@ class MainActivity : Activity() {
         content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
         content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
         content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
+        content.addView(action("Personalizar apariencia"){showAppearance()})
         content.addView(action("Cambiar servidor"){configureServer()})
+    }
+    private fun showAppearance() {
+        content.removeAllViews()
+        header.text="Personaliza CHAT PRO: colores y fondos que se guardan en este teléfono"
+        content.addView(note("Color de botones y detalles"))
+        val colors=listOf("Violeta" to Color.rgb(154,111,255),"Azul" to Color.rgb(35,125,230),"Verde" to Color.rgb(24,150,110),"Rosa" to Color.rgb(210,75,145),"Naranja" to Color.rgb(220,125,35),"Turquesa" to Color.rgb(0,150,160))
+        colors.forEach { (name,color)->
+            content.addView(action("●  $name"){ accent=color;getSharedPreferences("chatpro",MODE_PRIVATE).edit().putInt("accent_color",color).apply();toast("Color guardado");showAppearance() })
+        }
+        content.addView(note("Fondos"))
+        content.addView(action("Elegir imagen para pantalla principal"){chooseWallpaper("home_wallpaper")})
+        if(currentConversation.isNotBlank()) content.addView(action("Elegir imagen para el chat actual"){chooseWallpaper("chat_wallpaper_"+currentConversation)})
+        content.addView(action("Quitar fondo principal"){getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("home_wallpaper").apply();applyWallpaper("home_wallpaper");toast("Fondo principal eliminado")})
+        if(currentConversation.isNotBlank()) content.addView(action("Quitar fondo del chat actual"){getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("chat_wallpaper_"+currentConversation).apply();applyWallpaper("chat_wallpaper_"+currentConversation);toast("Fondo del chat eliminado")})
+        content.addView(action("Volver al perfil"){showHome("Perfil")})
     }
     private fun chooseFile() {
         val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="*/*"}
@@ -437,7 +454,7 @@ class MainActivity : Activity() {
         try { val bitmap=contentResolver.openInputStream(Uri.parse(raw))?.use { BitmapFactory.decodeStream(it) }; if(bitmap!=null) root.background=BitmapDrawable(resources,bitmap) else root.setBackgroundColor(bg) } catch(_:Exception){root.setBackgroundColor(bg)}
     }
     private fun field(hint:String)=EditText(this).apply{this.hint=hint;setHintTextColor(Color.LTGRAY);setTextColor(Color.WHITE);setPadding(16,12,16,12);minHeight=56;textSize=16f;setBackground(GradientDrawable().apply{setColor(panel);cornerRadius=18f;setStroke(1,Color.rgb(65,75,100))})}
-    private fun action(label:String,click:()->Unit)=Button(this).apply{text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=58;setPadding(16,12,16,12);stateListAnimator=null;setBackground(GradientDrawable().apply{setColor(panel);cornerRadius=18f;setStroke(1,Color.rgb(75,88,115))});setOnClickListener{click()}}
+    private fun action(label:String,click:()->Unit)=Button(this).apply{text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=58;setPadding(16,12,16,12);stateListAnimator=null;setBackground(GradientDrawable().apply{setColor(accent);cornerRadius=22f;setStroke(2,Color.rgb(210,200,255))});setOnClickListener{click()}}
     private fun note(value:String)=TextView(this).apply{text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(12,12,12,12)}
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
     override fun onDestroy(){socket?.disconnect();socket?.off();super.onDestroy()}
