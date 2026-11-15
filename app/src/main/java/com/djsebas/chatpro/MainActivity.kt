@@ -95,7 +95,7 @@ class MainActivity : Activity() {
             AlertDialog.Builder(this).setTitle("¿Cómo quieres registrarte?")
                 .setSingleChoiceItems(arrayOf("Correo electrónico","Número de celular"),if(method=="email")0 else 1){dialog,which->
                     method=if(which==0)"email" else "phone"
-                    chooseMethodLabel(method)
+                    choose.text=if(method=="email")"Método de registro: correo electrónico" else "Método de registro: número de celular"
                     dialog.dismiss()
                 }.setNegativeButton("Cancelar",null).show()
         }
