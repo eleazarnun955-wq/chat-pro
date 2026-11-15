@@ -27,8 +27,13 @@ export async function findUserByUsername(username) {
 }
 export async function findUserByEmail(email) {
   const normalized = String(email || "").trim().toLowerCase();
-  const { data, error } = await supabase.from("private_user_contacts").select("user_id").ilike("email", normalized).maybeSingle(); fail(error);
+  const { data, error } = await supabase.from("private_user_contacts").select("user_id").eq("email", normalized).maybeSingle(); fail(error);
   return data ? findUserById(data.user_id) : null;
+}
+export async function setUserEmail(userId, email) {
+  const { error } = await supabase.from("private_user_contacts").upsert({ user_id: userId, email }, { onConflict: "user_id" });
+  if (error?.code === "23505") throw Object.assign(new Error("Ese correo ya está registrado"), { status: 409 });
+  fail(error);
 }
 export async function registerUser({ id, name, username, email, salt, hash }) {
   const { data, error } = await supabase.from("profiles").insert({ id, username, display_name: name }).select("*").single(); fail(error);
