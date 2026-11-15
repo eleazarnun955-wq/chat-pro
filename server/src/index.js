@@ -9,6 +9,7 @@ import { randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import * as db from "./db.js";
 
 const app=express(), server=http.createServer(app);
+app.set("trust proxy",1);
 const PORT=Number(process.env.PORT||10000);
 const MAX_UPLOAD_BYTES=Number(process.env.MAX_UPLOAD_BYTES||512*1024*1024);
 const uploadDir=process.env.UPLOAD_DIR||path.resolve("uploads");
@@ -52,7 +53,7 @@ app.post("/api/register",(_q,r)=>r.status(410).json({error:"El registro ahora re
 app.post("/api/register/complete",asyncRoute(async(q,r)=>{
  const ip=q.ip||q.socket.remoteAddress||"unknown";
  if(rateLimited("register:"+ip,8))return r.status(429).json({error:"Demasiados intentos. Espera 15 minutos."});
- const accessToken=(q.headers.authorization||"").replace(/^Bearer\\s+/i,"");
+ const accessToken=(q.headers.authorization||"").replace(/^Bearer\s+/i,"");
  if(!accessToken)return r.status(401).json({error:"Falta la sesión verificada"});
  const name=clean(q.body?.name,40),username=clean(q.body?.username,24).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
  if(name.length<2||!/^[a-z0-9_.-]{3,24}$/.test(username)||password.length<8)return r.status(400).json({error:"Usa nombre, usuario de 3-24 caracteres y contraseña de al menos 8"});
@@ -71,7 +72,7 @@ app.post("/api/register/complete",asyncRoute(async(q,r)=>{
  r.status(201).json({token,user:db.publicUser(profile)});
 }));
 app.post("/api/recovery/complete",asyncRoute(async(q,r)=>{
- const accessToken=(q.headers.authorization||"").replace(/^Bearer\\s+/i,"");
+ const accessToken=(q.headers.authorization||"").replace(/^Bearer\s+/i,"");
  if(!accessToken)return r.status(401).json({error:"Falta la sesión verificada"});
  const method=q.body?.method,contact=clean(q.body?.contact,254),newPassword=typeof q.body?.newPassword==="string"?q.body.newPassword:"";
  if(newPassword.length<8)return r.status(400).json({error:"La contraseña debe tener al menos 8 caracteres"});
