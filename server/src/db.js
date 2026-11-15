@@ -25,10 +25,24 @@ export async function findUserByUsername(username) {
   const { data: cred, error: ce } = await supabase.from("app_credentials").select("password_salt,password_hash").eq("user_id", data.id).maybeSingle(); fail(ce);
   return { ...data, salt: cred?.password_salt, hash: cred?.password_hash };
 }
-export async function registerUser({ id, name, username, salt, hash }) {
-  const { data, error } = await supabase.from("profiles").insert({ id, username, display_name: name }).select("*").single(); fail(error);
+export async function registerUser({ id, name, username, salt, hash, email = null, phone = null }) {
+  const { data, error } = await supabase.from("profiles").insert({ id, username, display_name: name, email, phone }).select("*").single(); fail(error);
   const { error: ce } = await supabase.from("app_credentials").insert({ user_id: id, password_salt: salt, password_hash: hash }); fail(ce);
   return data;
+}
+export async function findUserByContact(method, contact) {
+  if (!contact) return null;
+  const column = method === "email" ? "email" : "phone";
+  let query = supabase.from("profiles").select("*");
+  query = method === "email" ? query.ilike(column, contact) : query.eq(column, contact);
+  const { data, error } = await query.maybeSingle(); fail(error);
+  return data;
+}
+export async function updatePasswordForUser(userId, salt, hash) {
+  const { error } = await supabase.from("app_credentials").update({ password_salt:salt, password_hash:hash, updated_at:new Date().toISOString() }).eq("user_id",userId);
+  fail(error);
+  const { error: sessionsError } = await supabase.from("app_sessions").delete().eq("user_id",userId);
+  fail(sessionsError);
 }
 export async function updateUser(id, patch) {
   const values = {};
