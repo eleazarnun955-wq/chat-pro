@@ -28,7 +28,7 @@ app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.1.0",dat
 
 app.post("/api/register",asyncRoute(async(q,r)=>{
  const name=clean(q.body?.name,40),email=clean(q.body?.email,254).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
- if(name.length<2||!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)||password.length<8||password.length>128)return r.status(400).json({error:"Ingresa un nombre, un correo válido y una contraseña de 8 a 128 caracteres"});
+ if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)||password.length<8||password.length>128)return r.status(400).json({error:"Ingresa un nombre, un correo válido y una contraseña de 8 a 128 caracteres"});
  if(await db.findUserByEmail(email))return r.status(409).json({error:"Ese correo ya está registrado"});
  const base=(email.split("@")[0].toLowerCase().replace(/[^a-z0-9_.-]/g,"").slice(0,15)||"usuario");
  const username=(base+"_"+randomUUID().replace(/-/g,"").slice(0,8)).slice(0,24);
@@ -47,6 +47,16 @@ app.post("/api/login",asyncRoute(async(q,r)=>{
  r.json({token,user:db.publicUser(u)});
 }));
 app.post("/api/logout",auth,asyncRoute(async(q,r)=>{await db.deleteSession(q.token);r.json({ok:true})}));
+app.post("/api/me/email",auth,asyncRoute(async(q,r)=>{
+ const email=clean(q.body?.email,254).toLowerCase(),current=typeof q.body?.currentPassword==="string"?q.body.currentPassword:"";
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))return r.status(400).json({error:"Ingresa un correo electrónico válido"});
+ const stored=await db.findUserById(q.user.id);
+ if(!stored?.salt||!stored?.hash)return r.status(400).json({error:"No se pudo validar la contraseña actual"});
+ const candidate=scryptSync(current,stored.salt,64);
+ if(!timingSafeEqual(candidate,Buffer.from(stored.hash,"hex")))return r.status(401).json({error:"La contraseña actual no es correcta"});
+ try{await db.setUserEmail(q.user.id,email)}catch(error){if(error.status===409)return r.status(409).json({error:error.message});throw error}
+ r.json({ok:true,message:"Correo vinculado. Ya puedes iniciar sesión con él."});
+}));
 app.post("/api/me/password",auth,asyncRoute(async(q,r)=>{
  const current=typeof q.body?.currentPassword==="string"?q.body.currentPassword:"";
  const next=typeof q.body?.newPassword==="string"?q.body.newPassword:"";
