@@ -8,12 +8,13 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        // Stable application ID: keep CHAT PRO as the same Android app.
-        applicationId = "com.djsebas.chatpro.v162"
+        // Separate package prevents signature conflicts with the existing 1.6.3 install.
+        // Keep the previous app installed; users can sign in to the same server account.
+        applicationId = "com.djsebas.chatpro.v164"
         minSdk = 23
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.6.3"
+        versionCode = 14
+        versionName = "1.6.4"
     }
 
     signingConfigs {
