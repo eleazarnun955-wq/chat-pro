@@ -9,11 +9,11 @@ android {
 
     defaultConfig {
         // Stable application ID: keep CHAT PRO as the same Android app.
-        applicationId = "com.djsebas.chatpro.v160"
+        applicationId = "com.djsebas.chatpro.v162"
         minSdk = 23
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.6.1"
+        versionCode = 12
+        versionName = "1.6.2"
     }
 
     signingConfigs {

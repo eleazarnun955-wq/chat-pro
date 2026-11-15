@@ -426,7 +426,7 @@ class MainActivity : Activity() {
     }
     private fun showAppearance() {
         content.removeAllViews()
-        header.text="Personaliza CHAT PRO: colores y fondos que se guardan en este teléfono"
+        header.text="Personaliza CHAT PRO: el fondo oficial viene incluido para todos; tus cambios personales se guardan en este teléfono"
         content.addView(note("Color de botones y detalles"))
         val colors=listOf("Violeta" to Color.rgb(154,111,255),"Azul" to Color.rgb(35,125,230),"Verde" to Color.rgb(24,150,110),"Rosa" to Color.rgb(210,75,145),"Naranja" to Color.rgb(220,125,35),"Turquesa" to Color.rgb(0,150,160))
         colors.forEach { (name,color)->
@@ -435,7 +435,7 @@ class MainActivity : Activity() {
         content.addView(note("Fondos"))
         content.addView(action("Elegir imagen para pantalla principal"){chooseWallpaper("home_wallpaper")})
         if(currentConversation.isNotBlank()) content.addView(action("Elegir imagen para el chat actual"){chooseWallpaper("chat_wallpaper_"+currentConversation)})
-        content.addView(action("Quitar fondo principal"){getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("home_wallpaper").apply();applyWallpaper("home_wallpaper");toast("Fondo principal eliminado")})
+        content.addView(action("Restablecer fondo oficial para todos"){getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("home_wallpaper").apply();applyWallpaper("home_wallpaper");toast("Fondo oficial de CHAT PRO restablecido")})
         if(currentConversation.isNotBlank()) content.addView(action("Quitar fondo del chat actual"){getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("chat_wallpaper_"+currentConversation).apply();applyWallpaper("chat_wallpaper_"+currentConversation);toast("Fondo del chat eliminado")})
         content.addView(action("Volver al perfil"){showHome("Perfil")})
     }
@@ -510,14 +510,27 @@ class MainActivity : Activity() {
     }
     private fun applyWallpaper(key:String) {
         val raw=getSharedPreferences("chatpro",MODE_PRIVATE).getString(key,null)
-        if(raw.isNullOrBlank()){root.setBackgroundColor(bg);return}
         try {
-            val bitmap=contentResolver.openInputStream(Uri.parse(raw))?.use { BitmapFactory.decodeStream(it) }
+            // The official CHAT PRO background is bundled in the APK so every user sees it.
+            // A personal home wallpaper can override it; conversation backgrounds remain independent.
+            val bitmap=if(!raw.isNullOrBlank()) {
+                contentResolver.openInputStream(Uri.parse(raw))?.use { BitmapFactory.decodeStream(it) }
+            } else if(key=="home_wallpaper") {
+                BitmapFactory.decodeResource(resources,R.drawable.chatpro_wallpaper)
+            } else null
             if(bitmap!=null) root.background=LayerDrawable(arrayOf(
                 BitmapDrawable(resources,bitmap),
                 ColorDrawable(Color.argb(112,8,11,24))
             )) else root.setBackgroundColor(bg)
-        } catch(_:Exception){root.setBackgroundColor(bg)}
+        } catch(_:Exception) {
+            if(key=="home_wallpaper") {
+                val fallback=BitmapFactory.decodeResource(resources,R.drawable.chatpro_wallpaper)
+                root.background=LayerDrawable(arrayOf(
+                    BitmapDrawable(resources,fallback),
+                    ColorDrawable(Color.argb(112,8,11,24))
+                ))
+            } else root.setBackgroundColor(bg)
+        }
     }
     private fun field(hint:String)=EditText(this).apply{
         this.hint=hint;setHintTextColor(Color.LTGRAY);setTextColor(Color.WHITE)
