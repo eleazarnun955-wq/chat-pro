@@ -170,6 +170,7 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancelar",null).setPositiveButton("Crear"){_,_->
                 if(title.text.toString().trim().length<3){toast("Pon un nombre de al menos 3 caracteres");return@setPositiveButton}
                 val names=users.text.toString().split(",").map{it.trim().removePrefix("@")}.filter{it.matches(Regex("[a-zA-Z0-9_.-]{3,24}"))}.distinct()
+                if(visibility=="private"&&names.isEmpty()){toast("Agrega al menos un usuario para invitar a la sala privada");return@setPositiveButton}
                 val body=JSONObject().put("type","room").put("visibility",visibility).put("title",title.text.toString()).put("description",description.text.toString()).put("usernames",JSONArray(names))
                 api("POST","/api/conversations",body,{data->val room=data.optJSONObject("conversation")?:return@api;openConversation(room.optString("id"),room.optString("title","Sala"))},{header.text=it})
             }.show()
