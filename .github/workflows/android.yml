@@ -1,7 +1,7 @@
 name: Build CHAT PRO APK
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/email-only-registration ]
   workflow_dispatch:
 permissions:
   contents: read
@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate CHAT PRO server JavaScript
+        run: |
+          node --check server/src/index.js
+          node --check server/src/db.js
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
