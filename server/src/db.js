@@ -11,7 +11,7 @@ const fail = (error) => { if (error) throw new Error(error.message || "Error de 
 const tokenHash = (token) => createHash("sha256").update(token).digest("hex");
 export const publicUser = (u) => u && ({
   id: u.id, name: u.display_name, username: u.username,
-  about: u.about || "", avatarUrl: u.avatar_url || "", createdAt: u.created_at
+  about: u.about || "", avatarUrl: u.avatar_url || "", createdAt: u.created_at, lastSeenAt: u.last_seen_at || null
 });
 export async function findUserById(id) {
   const { data, error } = await supabase.from("profiles").select("*").eq("id", id).maybeSingle(); fail(error);
@@ -115,6 +115,9 @@ export async function toggleMessageReaction(messageId,userId,reaction) {
 }
 export async function markConversationDelivered(conversationId,userId) {
   const { error } = await supabase.from("messages").update({delivered_at:new Date().toISOString()}).eq("conversation_id",conversationId).neq("sender_id",userId).is("delivered_at",null); fail(error);
+}
+export async function markMessageDelivered(messageId,conversationId,senderId) {
+  const { error } = await supabase.from("messages").update({delivered_at:new Date().toISOString()}).eq("id",messageId).eq("conversation_id",conversationId).neq("sender_id",senderId).is("delivered_at",null); fail(error);
 }
 export async function updateLastSeen(userId) {
   const { error } = await supabase.from("profiles").update({last_seen_at:new Date().toISOString()}).eq("id",userId); fail(error);
