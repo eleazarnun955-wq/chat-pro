@@ -25,10 +25,37 @@ export async function findUserByUsername(username) {
   const { data: cred, error: ce } = await supabase.from("app_credentials").select("password_salt,password_hash").eq("user_id", data.id).maybeSingle(); fail(ce);
   return { ...data, salt: cred?.password_salt, hash: cred?.password_hash };
 }
-export async function registerUser({ id, name, username, salt, hash }) {
+export async function registerUser({ id, name, username, salt, hash, email = null, phone = null }) {
   const { data, error } = await supabase.from("profiles").insert({ id, username, display_name: name }).select("*").single(); fail(error);
-  const { error: ce } = await supabase.from("app_credentials").insert({ user_id: id, password_salt: salt, password_hash: hash }); fail(ce);
+  const { error: contactError } = await supabase.from("private_user_contacts").insert({ user_id:id, email, phone });
+  if (contactError) {
+    await supabase.from("profiles").delete().eq("id",id);
+    fail(contactError);
+  }
+  const { error: ce } = await supabase.from("app_credentials").insert({ user_id: id, password_salt: salt, password_hash: hash });
+  if (ce) {
+    await supabase.from("private_user_contacts").delete().eq("user_id",id);
+    await supabase.from("profiles").delete().eq("id",id);
+    fail(ce);
+  }
   return data;
+}
+export async function findUserByContact(method, contact) {
+  if (!contact) return null;
+  const column = method === "email" ? "email" : "phone";
+  let query = supabase.from("private_user_contacts").select("user_id");
+  query = method === "email" ? query.ilike(column, contact) : query.eq(column, contact);
+  const { data: contactData, error } = await query.maybeSingle(); fail(error);
+  if (!contactData) return null;
+  const { data, error: profileError } = await supabase.from("profiles").select("*").eq("id",contactData.user_id).maybeSingle();
+  fail(profileError);
+  return data;
+}
+export async function updatePasswordForUser(userId, salt, hash) {
+  const { error } = await supabase.from("app_credentials").update({ password_salt:salt, password_hash:hash, updated_at:new Date().toISOString() }).eq("user_id",userId);
+  fail(error);
+  const { error: sessionsError } = await supabase.from("app_sessions").delete().eq("user_id",userId);
+  fail(sessionsError);
 }
 export async function updateUser(id, patch) {
   const values = {};

@@ -7,6 +7,16 @@
 - La actualización conserva el mismo applicationId que la instalación 1.4.0.
 - APK: GitHub Actions → **Build CHAT PRO APK** → artifact **CHAT-PRO-debug**.
 
+## Registro y seguridad de cuentas
+- El registro nuevo exige verificar correo electrónico mediante OTP o celular mediante SMS, a elección del usuario.
+- El correo y teléfono verificados se guardan en columnas privadas con índices únicos; nunca se incluyen en el perfil público.
+- El servidor rechaza el registro antiguo sin verificación y comprueba la sesión de Supabase antes de crear la cuenta.
+- La recuperación mediante OTP está disponible para cuentas creadas con el nuevo flujo y vinculadas a un contacto verificado.
+- **Correo:** en [Supabase Auth](https://supabase.com/dashboard/project/zvvbntbrhrdfbbhaexsy/auth/templates), edita la plantilla de confirmación para mostrar `{{ .Token }}` (código OTP de seis dígitos). Configura SMTP propio para entrega real y confiable; el SMTP de prueba de Supabase tiene restricciones.
+- **Celular:** en [Supabase Auth Providers](https://supabase.com/dashboard/project/zvvbntbrhrdfbbhaexsy/auth/providers), habilita Phone y configura un proveedor SMS compatible (por ejemplo Twilio: Account SID, Auth Token y Messaging Service SID). Usa números en formato internacional E.164, como `+52...`.
+- Las credenciales SMTP/SMS deben configurarse únicamente en el panel seguro de Supabase; nunca en la APK, GitHub ni mensajes de chat.
+- Sin SMTP y proveedor SMS configurados, la interfaz y validación están listas, pero no se enviarán códigos reales.
+
 ## Funciones conectadas
 - Registro, inicio/cierre de sesión, sesiones con token y perfiles.
 - Búsqueda de usuarios y conversaciones privadas.

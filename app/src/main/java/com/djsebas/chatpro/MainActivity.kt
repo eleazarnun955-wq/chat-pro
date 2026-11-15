@@ -38,6 +38,8 @@ class MainActivity : Activity() {
     private var accent=Color.rgb(154,111,255)
     private val http=OkHttpClient.Builder().connectTimeout(25,TimeUnit.SECONDS).readTimeout(90,TimeUnit.SECONDS).build()
     private val defaultBaseUrl="https://chat-pro-server-qhjw.onrender.com"
+    private val supabaseUrl="https://zvvbntbrhrdfbbhaexsy.supabase.co"
+    private val supabasePublishableKey="sb_publishable_RVqKX0pd8DwLwPFEL0VQwg_gWFHKeiB"
     private var baseUrl=defaultBaseUrl
     private var token=""
     private var me=JSONObject()
@@ -81,18 +83,147 @@ class MainActivity : Activity() {
         applyWallpaper("home_wallpaper")
     }
     private fun showAuth() {
-        frame("CHAT PRO","Mensajería privada · cuentas y perfiles")
+        frame("CHAT PRO","Registro protegido · elige correo o celular")
         val name=field("Nombre visible")
-        val username=field("Usuario")
+        val username=field("Usuario (3-24 caracteres)")
+        val contact=field("Correo electrónico o celular +52...")
         val password=field("Contraseña (mínimo 8 caracteres)")
         password.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-        content.addView(name);content.addView(username);content.addView(password)
+        content.addView(name);content.addView(username)
+        var method="email"
+        lateinit var choose: TextView
+        choose=action("Método de registro: correo electrónico"){
+            AlertDialog.Builder(this).setTitle("¿Cómo quieres registrarte?")
+                .setSingleChoiceItems(arrayOf("Correo electrónico","Número de celular"),if(method=="email")0 else 1){dialog,which->
+                    method=if(which==0)"email" else "phone"
+                    choose.text=if(method=="email")"Método de registro: correo electrónico" else "Método de registro: número de celular"
+                    dialog.dismiss()
+                }.setNegativeButton("Cancelar",null).show()
+        }
+        content.addView(choose)
+        content.addView(contact);content.addView(password)
+        content.addView(action("Crear cuenta y recibir código"){
+            requestSignupOtp(method,name.text.toString(),username.text.toString(),contact.text.toString(),password.text.toString())
+        })
         val actions=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        actions.addView(action("Crear cuenta"){authRequest("/api/register",JSONObject().put("name",name.text.toString()).put("username",username.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
         actions.addView(action("Iniciar sesión"){authRequest("/api/login",JSONObject().put("username",username.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
+        actions.addView(action("Recuperar cuenta"){requestRecoveryOtp(method,contact.text.toString())},LinearLayout.LayoutParams(0,54,1f))
         content.addView(actions)
         content.addView(action("Configurar servidor"){configureServer()})
-        header.text="Crea una cuenta o inicia sesión. Cada persona necesita su propio usuario."
+        header.text="Verificamos el correo o celular antes de activar una cuenta. Un contacto solo puede pertenecer a una cuenta."
+    }
+    private fun supabaseCall(method:String,path:String,body:JSONObject,accessToken:String?=null):JSONObject {
+        val builder=Request.Builder().url(supabaseUrl+path).header("apikey",supabasePublishableKey).header("Content-Type","application/json")
+        if(!accessToken.isNullOrBlank())builder.header("Authorization","Bearer "+accessToken)
+        val payload=body.toString().toRequestBody("application/json".toMediaTypeOrNull())
+        val request=when(method){"PUT"->builder.put(payload).build();"PATCH"->builder.patch(payload).build();else->builder.post(payload).build()}
+        http.newCall(request).execute().use{res->
+            val raw=res.body?.string()?:"{}"
+            val data=try{JSONObject(raw)}catch(_:Exception){JSONObject()}
+            if(!res.isSuccessful)throw Exception(data.optString("msg",data.optString("message",data.optString("error","Error de verificación HTTP "+res.code))))
+            return data
+        }
+    }
+    private fun backendAuthPost(path:String,body:JSONObject,accessToken:String):JSONObject {
+        val req=Request.Builder().url(baseUrl+path).header("Authorization","Bearer "+accessToken)
+            .post(body.toString().toRequestBody("application/json".toMediaTypeOrNull())).build()
+        http.newCall(req).execute().use{res->
+            val raw=res.body?.string()?:"{}";val data=try{JSONObject(raw)}catch(_:Exception){JSONObject()}
+            if(!res.isSuccessful)throw Exception(data.optString("error","Error del servidor HTTP "+res.code))
+            return data
+        }
+    }
+    private fun requestSignupOtp(method:String,name:String,username:String,contactRaw:String,password:String) {
+        val contact=contactRaw.trim()
+        if(name.trim().length<2||!username.trim().matches(Regex("[a-zA-Z0-9_.-]{3,24}"))||password.length<8){
+            toast("Completa nombre, usuario válido y contraseña de al menos 8 caracteres");return
+        }
+        if(method=="email"&&!android.util.Patterns.EMAIL_ADDRESS.matcher(contact).matches()){
+            toast("Escribe un correo electrónico válido");return
+        }
+        if(method=="phone"&&!contact.matches(Regex("\\+[1-9][0-9]{7,14}"))){
+            toast("Escribe el celular en formato internacional, por ejemplo +525512345678");return
+        }
+        header.text="Solicitando código de verificación…"
+        Thread{
+            try{
+                val body=JSONObject().put(if(method=="email")"email" else "phone",contact).put("create_user",true)
+                supabaseCall("POST","/auth/v1/otp",body)
+                runOnUiThread{showOtpDialog(method,contact,false,name,username,password)}
+            }catch(e:Exception){runOnUiThread{header.text=e.message?:"No se pudo enviar el código"}}
+        }.start()
+    }
+    private fun requestRecoveryOtp(method:String,contactRaw:String) {
+        val contact=contactRaw.trim()
+        if(method=="email"&&!android.util.Patterns.EMAIL_ADDRESS.matcher(contact).matches()){
+            toast("Escribe el correo asociado a tu cuenta");return
+        }
+        if(method=="phone"&&!contact.matches(Regex("\\+[1-9][0-9]{7,14}"))){
+            toast("Escribe el celular con código de país, por ejemplo +525512345678");return
+        }
+        header.text="Solicitando código para recuperar tu cuenta…"
+        Thread{
+            try{
+                val body=JSONObject().put(if(method=="email")"email" else "phone",contact).put("create_user",false)
+                supabaseCall("POST","/auth/v1/otp",body)
+                runOnUiThread{showOtpDialog(method,contact,true,"","","")}
+            }catch(e:Exception){runOnUiThread{header.text=e.message?:"No se pudo enviar el código"}}
+        }.start()
+    }
+    private fun showOtpDialog(method:String,contact:String,recovery:Boolean,name:String,username:String,password:String) {
+        val code=field("Código de 6 dígitos")
+        AlertDialog.Builder(this).setTitle("Verifica tu "+if(method=="email")"correo" else "celular")
+            .setMessage("Enviamos un código a $contact. Revisa también la carpeta de spam si usas correo.")
+            .setView(code).setNegativeButton("Cancelar",null).setPositiveButton("Verificar"){_,_->
+                verifyOtpAndFinish(method,contact,code.text.toString().trim(),recovery,name,username,password)
+            }.show()
+    }
+    private fun verifyOtpAndFinish(method:String,contact:String,code:String,recovery:Boolean,name:String,username:String,password:String) {
+        if(!code.matches(Regex("[0-9]{6}"))){toast("El código debe tener 6 dígitos");return}
+        val newPasswordField=if(recovery)field("Nueva contraseña (mínimo 8 caracteres)") else null
+        header.text="Verificando código…"
+        Thread{
+            try{
+                val identity=if(method=="email")"email" else "phone"
+                val body=JSONObject().put("type",if(method=="email")"email" else "sms").put(identity,contact).put("token",code)
+                val verified=supabaseCall("POST","/auth/v1/verify",body)
+                val accessToken=verified.optString("access_token")
+                if(accessToken.isBlank())throw Exception("El código no generó una sesión válida")
+                if(recovery){
+                    runOnUiThread{
+                        AlertDialog.Builder(this).setTitle("Nueva contraseña").setView(newPasswordField)
+                            .setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->
+                                val next=newPasswordField?.text?.toString().orEmpty()
+                                if(next.length<8){toast("La contraseña debe tener al menos 8 caracteres");return@setPositiveButton}
+                                finishRecovery(accessToken,method,contact,next)
+                            }.show()
+                    }
+                }else{
+                    supabaseCall("PUT","/auth/v1/user",JSONObject().put("password",password),accessToken)
+                    val completed=backendAuthPost("/api/register/complete",JSONObject()
+                        .put("name",name.trim()).put("username",username.trim().lowercase())
+                        .put("password",password).put("method",method).put("contact",contact),accessToken)
+                    acceptAppSession(completed)
+                }
+            }catch(e:Exception){runOnUiThread{header.text=e.message?:"No se pudo verificar el código"}}
+        }.start()
+    }
+    private fun finishRecovery(accessToken:String,method:String,contact:String,newPassword:String) {
+        header.text="Actualizando contraseña…"
+        Thread{
+            try{
+                supabaseCall("PUT","/auth/v1/user",JSONObject().put("password",newPassword),accessToken)
+                val completed=backendAuthPost("/api/recovery/complete",JSONObject()
+                    .put("method",method).put("contact",contact).put("newPassword",newPassword),accessToken)
+                acceptAppSession(completed)
+            }catch(e:Exception){runOnUiThread{header.text=e.message?:"No se pudo recuperar la cuenta"}}
+        }.start()
+    }
+    private fun acceptAppSession(data:JSONObject) {
+        token=data.optString("token");me=data.optJSONObject("user")?:JSONObject()
+        if(token.isBlank())throw Exception("El servidor no devolvió una sesión")
+        getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("token",token).apply()
+        runOnUiThread{showHome("Chats")}
     }
     private fun authRequest(path:String,body:JSONObject) {
         header.text="Conectando…"
