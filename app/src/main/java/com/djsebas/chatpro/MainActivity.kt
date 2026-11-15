@@ -95,7 +95,7 @@ class MainActivity : Activity() {
             AlertDialog.Builder(this).setTitle("¿Cómo quieres registrarte?")
                 .setSingleChoiceItems(arrayOf("Correo electrónico","Número de celular"),if(method=="email")0 else 1){dialog,which->
                     method=if(which==0)"email" else "phone"
-                    choose.text=if(method=="email")"Método de registro: correo electrónico" else "Método de registro: número de celular"
+                    toast(if(method=="email")"Elegiste correo electrónico" else "Elegiste número de celular")
                     dialog.dismiss()
                 }.setNegativeButton("Cancelar",null).show()
         }
@@ -110,10 +110,6 @@ class MainActivity : Activity() {
         content.addView(actions)
         content.addView(action("Configurar servidor"){configureServer()})
         header.text="Verificamos el correo o celular antes de activar una cuenta. Un contacto solo puede pertenecer a una cuenta."
-    }
-    private fun chooseMethodLabel(method:String) {
-        // The selected method is reflected in the contact hint on the next screen refresh.
-        toast(if(method=="email")"Elegiste correo electrónico" else "Elegiste número de celular con código de país")
     }
     private fun supabaseCall(method:String,path:String,body:JSONObject,accessToken:String?=null):JSONObject {
         val builder=Request.Builder().url(supabaseUrl+path).header("apikey",supabasePublishableKey).header("Content-Type","application/json")
@@ -183,6 +179,7 @@ class MainActivity : Activity() {
     }
     private fun verifyOtpAndFinish(method:String,contact:String,code:String,recovery:Boolean,name:String,username:String,password:String) {
         if(!code.matches(Regex("[0-9]{6}"))){toast("El código debe tener 6 dígitos");return}
+        val newPasswordField=if(recovery)field("Nueva contraseña (mínimo 8 caracteres)") else null
         header.text="Verificando código…"
         Thread{
             try{
@@ -192,11 +189,10 @@ class MainActivity : Activity() {
                 val accessToken=verified.optString("access_token")
                 if(accessToken.isBlank())throw Exception("El código no generó una sesión válida")
                 if(recovery){
-                    val newPassword=field("Nueva contraseña (mínimo 8 caracteres)")
                     runOnUiThread{
-                        AlertDialog.Builder(this).setTitle("Nueva contraseña").setView(newPassword)
+                        AlertDialog.Builder(this).setTitle("Nueva contraseña").setView(newPasswordField)
                             .setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->
-                                val next=newPassword.text.toString()
+                                val next=newPasswordField?.text?.toString().orEmpty()
                                 if(next.length<8){toast("La contraseña debe tener al menos 8 caracteres");return@setPositiveButton}
                                 finishRecovery(accessToken,method,contact,next)
                             }.show()
