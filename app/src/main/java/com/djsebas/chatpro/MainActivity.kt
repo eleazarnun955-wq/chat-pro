@@ -426,7 +426,6 @@ class MainActivity : Activity() {
             } catch(e:Exception) { toast(e.message?: "Dirección de servidor no válida") }
         }.show()
     }
-    private fun field(hint:String)=EditText(this).apply{this.hint=hint;setHintTextColor(Color.GRAY);setTextColor(Color.WHITE);setPadding(12,8,12,8);setBackgroundColor(panel);textSize=14f}
     private fun chooseWallpaper(key:String) {
         pendingWallpaperKey=key
         val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type="image/*"; addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) }
