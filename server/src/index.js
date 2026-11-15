@@ -61,16 +61,35 @@ app.post("/api/conversations",auth,asyncRoute(async(q,r)=>{
  for(const username of names){const found=await db.findUserByUsername(username);if(found)ids.push(found.id)}
  const valid=[];for(const id of new Set(ids)){if(await db.findUserById(id))valid.push(id)}
  const members=[...new Set([q.user.id,...valid])];
- if(members.length<2)return r.status(400).json({error:"Selecciona al menos otro usuario"});
- const group=members.length>2||q.body?.type==="group";
- const visibility=q.body?.visibility==="public"?"public":"private";
- const conversation=await db.createConversation({id:randomUUID(),type:group?"group":"direct",title:clean(q.body?.title,60)||(group?"Nuevo grupo":""),members,createdBy:q.user.id,visibility,description:clean(q.body?.description,500)});
+ if(members.length<(q.body?.type==="room"?1:2))return r.status(400).json({error:"Selecciona al menos otro usuario"});
+ const room=q.body?.type==="room";
+ const group=room||members.length>2||q.body?.type==="group";
+ const visibility=room&&q.body?.visibility==="public"?"public":"private";
+ const conversation=await db.createConversation({id:randomUUID(),type:room?"room":group?"group":"direct",title:clean(q.body?.title,60)||(group?"Nuevo grupo":"Chat privado"),members,createdBy:q.user.id,visibility,description:clean(q.body?.description,500)});
  r.status(201).json({conversation});
+}));
+app.get("/api/rooms",auth,asyncRoute(async(q,r)=>r.json({rooms:await db.listPublicRooms(q.user.id)})));
+app.post("/api/rooms/:id/join",auth,asyncRoute(async(q,r)=>{
+ const joined=await db.joinPublicRoom(q.params.id,q.user.id);
+ if(!joined)return r.status(404).json({error:"La sala no existe o no es pública"});
+ r.json({ok:true});
+}));
+app.post("/api/messages/:id/reactions",auth,asyncRoute(async(q,r)=>{
+ const message=await db.getMessage(q.params.id);
+ if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
+ const allowed=["👍","❤️","😂","🔥","👏","😮","😢","🎉"];
+ const reaction=typeof q.body?.reaction==="string"?q.body.reaction:"";
+ if(!allowed.includes(reaction))return r.status(400).json({error:"Reacción no permitida"});
+ const reactions=await db.toggleMessageReaction(message.id,q.user.id,reaction);
+ io.to(message.conversation_id).emit("message:reaction",{messageId:message.id,reactions});
+ r.json({ok:true,reactions});
 }));
 app.post("/api/conversations/:id/read",auth,asyncRoute(async(q,r)=>{
  if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
  await db.markConversationRead(q.params.id,q.user.id);
- r.json({ok:true,readAt:new Date().toISOString()});
+ const readAt=new Date().toISOString();
+ io.to(q.params.id).emit("conversation:read",{userId:q.user.id,readAt});
+ r.json({ok:true,readAt});
 }));
 app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
  if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
@@ -154,12 +173,15 @@ io.use(async(socket,next)=>{
 });
 io.on("connection",socket=>{
  const user=socket.data.user;
+ if(user){socket.join("user:"+user.id);db.updateLastSeen(user.id).catch(console.error);io.emit("presence:changed",{userId:user.id,online:true});}
  socket.on("conversation:join",async({conversationId}={})=>{
   try{if(!user||!await member(conversationId,user.id))return;
    for(const room of socket.rooms)if(room!==socket.id)socket.leave(room);
    socket.join(conversationId);socket.data.conversationId=conversationId;
+   await db.markConversationDelivered(conversationId,user.id);
    socket.emit("conversation:history",await db.listMessages(conversationId));
    socket.to(conversationId).emit("presence:joined",{user:db.publicUser(user)});
+   socket.to(conversationId).emit("conversation:delivered",{userId:user.id,conversationId});
   }catch(e){socket.emit("chat:error",{message:"No se pudo cargar la conversación"})}
  });
  socket.on("conversation:send",async payload=>{
@@ -172,7 +194,7 @@ io.on("connection",socket=>{
   }catch(e){socket.emit("chat:error",{message:"No se pudo enviar el mensaje"})}
  });
  socket.on("room:join",({roomId}={})=>{if(process.env.ALLOW_LEGACY_ROOMS!=="false"||!roomId)return;});
- socket.on("disconnect",()=>{if(socket.data.conversationId)socket.to(socket.data.conversationId).emit("presence:left",{user:user?db.publicUser(user):null})});
+ socket.on("disconnect",()=>{if(user){db.updateLastSeen(user.id).catch(console.error);io.emit("presence:changed",{userId:user.id,online:false,lastSeenAt:new Date().toISOString()})}if(socket.data.conversationId)socket.to(socket.data.conversationId).emit("presence:left",{user:user?db.publicUser(user):null})});
 });
 app.use((err,_q,r,_next)=>{console.error(err);r.status(err instanceof multer.MulterError?413:400).json({error:err.message||"Error al procesar la solicitud"})});
 db.verifyConnection().then(()=>server.listen(PORT,"0.0.0.0",()=>console.log("CHAT PRO 2 connected to Supabase and listening on "+PORT))).catch(error=>{console.error("CHAT PRO Supabase connection failed:",error);process.exit(1)});
