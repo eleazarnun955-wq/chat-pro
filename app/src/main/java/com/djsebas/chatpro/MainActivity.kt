@@ -117,11 +117,12 @@ class MainActivity : Activity() {
         socket?.disconnect()
         frame("CHAT PRO",me.optString("name","Usuario")+" · @"+me.optString("username",""))
         val nav=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        listOf("Chats","Contactos","Estados","Perfil").forEach{t->nav.addView(action(t){showHome(t)},LinearLayout.LayoutParams(0,48,1f))}
+        listOf("Chats","Contactos","Salas","Estados","Perfil").forEach{t->nav.addView(action(t){showHome(t)},LinearLayout.LayoutParams(0,48,1f))}
         root.addView(nav,1)
         when(tab){
             "Chats"->loadConversations()
             "Contactos"->showContacts()
+            "Salas"->showPublicRooms()
             "Estados"->showStatuses()
             "Perfil"->showProfile()
         }
@@ -142,9 +143,43 @@ class MainActivity : Activity() {
             }
         },{header.text=it})
     }
+    private fun createPublicRoomDialog() {
+        val title=field("Nombre de la sala")
+        val description=field("Descripción (opcional)")
+        val users=field("Usuarios iniciales separados por coma (opcional)")
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(title);addView(description);addView(users)}
+        AlertDialog.Builder(this).setTitle("Crear sala pública").setMessage("Cualquier usuario podrá encontrarla y unirse.").setView(box)
+            .setNegativeButton("Cancelar",null).setPositiveButton("Crear"){_,_->
+                if(title.text.toString().trim().length<3){toast("Pon un nombre de al menos 3 caracteres");return@setPositiveButton}
+                val names=users.text.toString().split(",").map{it.trim().removePrefix("@")}.filter{it.matches(Regex("[a-zA-Z0-9_.-]{3,24}"))}.distinct()
+                val body=JSONObject().put("type","room").put("visibility","public").put("title",title.text.toString()).put("description",description.text.toString()).put("usernames",JSONArray(names))
+                api("POST","/api/conversations",body,{data->val room=data.optJSONObject("conversation")?:return@api;openConversation(room.optString("id"),room.optString("title","Sala"))},{header.text=it})
+            }.show()
+    }
+    private fun showPublicRooms() {
+        content.removeAllViews();header.text="Salas públicas · puedes unirte o abrir las que ya frecuentas"
+        content.addView(action("＋ Crear sala pública"){createPublicRoomDialog()})
+        api("GET","/api/rooms",null,{data->
+            val rooms=data.optJSONArray("rooms")?:JSONArray()
+            if(rooms.length()==0)content.addView(note("Todavía no hay salas públicas. ¡Crea la primera!"))
+            for(i in 0 until rooms.length()){
+                val room=rooms.optJSONObject(i)?:continue
+                val id=room.optString("id");val title=room.optString("title","Sala")
+                val members=room.optInt("members")
+                val joined=room.optBoolean("isMember")
+                content.addView(action("${if(joined)"Abrir" else "Unirse"} · $title · $members miembros"){
+                    if(joined)openConversation(id,title)
+                    else api("POST","/api/rooms/$id/join",JSONObject(),{openConversation(id,title)},{toast(it)})
+                })
+                if(room.optString("description").isNotBlank())content.addView(note(room.optString("description")))
+            }
+        },{header.text=it})
+    }
     private fun showContacts() {
         content.removeAllViews();header.text="Busca usuarios para iniciar una conversación"
         content.addView(action("＋ Crear grupo"){createGroupDialog()})
+        content.addView(action("＋ Crear sala pública"){createPublicRoomDialog()})
+        content.addView(action("Explorar salas públicas"){showPublicRooms()})
         val q=field("Buscar por nombre o usuario");content.addView(q)
         val result=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};content.addView(result)
         content.addView(action("Buscar"){searchUsers(q.text.toString(),result)})
@@ -212,6 +247,11 @@ class MainActivity : Activity() {
                 val obj=args.firstOrNull() as? JSONObject?:return@on
                 runOnUiThread{renderConversationMessage(obj)}
             }
+            socket?.on("message:reaction"){runOnUiThread{refreshConversationMessages()}}
+            socket?.on("conversation:read"){runOnUiThread{refreshConversationMessages()}}
+            socket?.on("conversation:delivered"){runOnUiThread{refreshConversationMessages()}}
+            socket?.on("presence:joined"){runOnUiThread{header.text="En línea · $currentTitle"}}
+            socket?.on("presence:left"){runOnUiThread{header.text="Miembro desconectado · $currentTitle"}}
             socket?.once(Socket.EVENT_CONNECT){socket?.emit("conversation:join",JSONObject().put("conversationId",currentConversation))}
             socket?.connect()
         }catch(e:Exception){header.text="Chat en línea no disponible: ${e.message}"}
@@ -227,9 +267,32 @@ class MainActivity : Activity() {
         val user=obj.optJSONObject("user")
         val who=user?.optString("name")?: "Usuario"
         val text=obj.optString("text")
-        if(text.isNotBlank())content.addView(note("$who: $text"))
+        val mine=user?.optString("id")==me.optString("id")
+        val receipt=if(mine){when{obj.optString("readAt").isNotBlank()->"  ✓✓";obj.optString("deliveredAt").isNotBlank()->"  ✓✓";else->"  ✓"}}else ""
+        if(text.isNotBlank())content.addView(note("$who: $text$receipt"))
         val media=obj.optJSONObject("media")
         if(media!=null)content.addView(action("⬇  Descargar: ${media.optString("name","Archivo")}"){downloadMedia(media)})
+        val reactions=obj.optJSONArray("reactions")?:JSONArray()
+        val summary=(0 until reactions.length()).mapNotNull{reactions.optJSONObject(it)?.optString("reaction")}.groupingBy{it}.eachCount().entries.joinToString("  "){"${it.key} ${it.value}"}
+        if(summary.isNotBlank())content.addView(note("Reacciones: $summary"))
+        val messageId=obj.optString("id")
+        if(messageId.isNotBlank())content.addView(action("Reaccionar  👍  ❤️  😂  🔥"){showMessageReactions(messageId)})
+    }
+    private fun showMessageReactions(messageId:String) {
+        val options=arrayOf("👍","❤️","😂","🔥","👏","😮","😢","🎉")
+        AlertDialog.Builder(this).setTitle("Reaccionar al mensaje").setItems(options){_,which->
+            api("POST","/api/messages/$messageId/reactions",JSONObject().put("reaction",options[which]),{refreshConversationMessages()},{toast(it)})
+        }.show()
+    }
+    private fun refreshConversationMessages() {
+        val id=currentConversation
+        if(id.isBlank())return
+        api("GET","/api/conversations/$id/messages",null,{data->
+            if(currentConversation!=id)return@api
+            content.removeAllViews()
+            val arr=data.optJSONArray("messages")?:JSONArray()
+            for(i in 0 until arr.length())renderConversationMessage(arr.optJSONObject(i)?:continue)
+        },{header.text=it})
     }
     private fun downloadMedia(media:JSONObject) {
         val path=media.optString("downloadPath")
