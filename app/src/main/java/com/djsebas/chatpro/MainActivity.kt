@@ -407,8 +407,22 @@ class MainActivity : Activity() {
         content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
         content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
         content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
+        content.addView(action("Cambiar contraseña"){showChangePasswordDialog()})
         content.addView(action("Personalizar apariencia"){showAppearance()})
         content.addView(action("Cambiar servidor"){configureServer()})
+    }
+    private fun showChangePasswordDialog() {
+        val current=field("Contraseña actual")
+        val next=field("Nueva contraseña (mínimo 8 caracteres)")
+        val confirm=field("Confirmar nueva contraseña")
+        listOf(current,next,confirm).forEach{it.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD}
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(current);addView(next);addView(confirm)}
+        AlertDialog.Builder(this).setTitle("Cambiar contraseña").setView(box)
+            .setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->
+                if(next.text.toString().length<8){toast("La nueva contraseña debe tener al menos 8 caracteres");return@setPositiveButton}
+                if(next.text.toString()!=confirm.text.toString()){toast("Las contraseñas nuevas no coinciden");return@setPositiveButton}
+                api("POST","/api/me/password",JSONObject().put("currentPassword",current.text.toString()).put("newPassword",next.text.toString()),{toast("Contraseña actualizada; las otras sesiones se cerraron")},{toast(it)})
+            }.show()
     }
     private fun showAppearance() {
         content.removeAllViews()
