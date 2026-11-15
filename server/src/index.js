@@ -97,7 +97,7 @@ app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
 }));
 app.post("/api/conversations/:id/members",auth,asyncRoute(async(q,r)=>{
  const c=await db.getConversation(q.params.id);
- if(!c||c.type!=="group"||c.created_by!==q.user.id||!await member(c.id,q.user.id))return r.sendStatus(403);
+ if(!c||!["group","room"].includes(c.type)||c.visibility!=="private"&&c.type==="room"||c.created_by!==q.user.id||!await member(c.id,q.user.id))return r.sendStatus(403);
  const uid=q.body?.userId;if(!uid||!await db.findUserById(uid))return r.status(404).json({error:"Usuario no encontrado"});
  await db.addConversationMember(c.id,uid);r.json({ok:true});
 }));
