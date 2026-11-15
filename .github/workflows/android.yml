@@ -1,7 +1,7 @@
 name: Build CHAT PRO APK
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/verified-email-phone-registration ]
   workflow_dispatch:
 permissions:
   contents: read
