@@ -8,7 +8,11 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.RippleDrawable
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -451,11 +455,36 @@ class MainActivity : Activity() {
     private fun applyWallpaper(key:String) {
         val raw=getSharedPreferences("chatpro",MODE_PRIVATE).getString(key,null)
         if(raw.isNullOrBlank()){root.setBackgroundColor(bg);return}
-        try { val bitmap=contentResolver.openInputStream(Uri.parse(raw))?.use { BitmapFactory.decodeStream(it) }; if(bitmap!=null) root.background=BitmapDrawable(resources,bitmap) else root.setBackgroundColor(bg) } catch(_:Exception){root.setBackgroundColor(bg)}
+        try {
+            val bitmap=contentResolver.openInputStream(Uri.parse(raw))?.use { BitmapFactory.decodeStream(it) }
+            if(bitmap!=null) root.background=LayerDrawable(arrayOf(
+                BitmapDrawable(resources,bitmap),
+                ColorDrawable(Color.argb(112,8,11,24))
+            )) else root.setBackgroundColor(bg)
+        } catch(_:Exception){root.setBackgroundColor(bg)}
     }
-    private fun field(hint:String)=EditText(this).apply{this.hint=hint;setHintTextColor(Color.LTGRAY);setTextColor(Color.WHITE);setPadding(16,12,16,12);minHeight=56;textSize=16f;setBackground(GradientDrawable().apply{setColor(panel);cornerRadius=18f;setStroke(1,Color.rgb(65,75,100))})}
-    private fun action(label:String,click:()->Unit)=Button(this).apply{text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=58;setPadding(16,12,16,12);stateListAnimator=null;setBackground(GradientDrawable().apply{setColor(accent);cornerRadius=22f;setStroke(2,Color.rgb(210,200,255))});setOnClickListener{click()}}
-    private fun note(value:String)=TextView(this).apply{text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(12,12,12,12)}
+    private fun field(hint:String)=EditText(this).apply{
+        this.hint=hint;setHintTextColor(Color.LTGRAY);setTextColor(Color.WHITE)
+        setPadding(16,12,16,12);minHeight=56;textSize=16f
+        setBackground(GradientDrawable().apply{setColor(Color.argb(235,25,30,49));cornerRadius=18f;setStroke(1,Color.rgb(85,96,128))})
+    }
+    private fun action(label:String,click:()->Unit)=Button(this).apply{
+        text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=58
+        gravity=Gravity.CENTER;letterSpacing=0.015f;setPadding(18,12,18,12)
+        stateListAnimator=null
+        val top=Color.rgb((Color.red(accent)+28).coerceAtMost(255),(Color.green(accent)+28).coerceAtMost(255),(Color.blue(accent)+28).coerceAtMost(255))
+        val shape=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(top,accent)).apply{
+            cornerRadius=20f;setStroke(1,Color.argb(190,225,220,255))
+        }
+        background=RippleDrawable(ColorStateList.valueOf(Color.argb(75,255,255,255)),shape,null)
+        elevation=5f
+        setOnClickListener{click()}
+    }
+    private fun note(value:String)=TextView(this).apply{
+        text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(15,13,15,13)
+        setBackground(GradientDrawable().apply{setColor(Color.argb(220,25,30,49));cornerRadius=16f;setStroke(1,Color.argb(150,90,105,140))})
+        val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(2,5,2,7);layoutParams=lp
+    }
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
     override fun onDestroy(){socket?.disconnect();socket?.off();super.onDestroy()}
 }
