@@ -91,11 +91,12 @@ class MainActivity : Activity() {
         password.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
         content.addView(name);content.addView(username)
         var method="email"
-        val choose=action("Método de registro: correo electrónico"){
+        lateinit var choose: TextView
+        choose=action("Método de registro: correo electrónico"){
             AlertDialog.Builder(this).setTitle("¿Cómo quieres registrarte?")
                 .setSingleChoiceItems(arrayOf("Correo electrónico","Número de celular"),if(method=="email")0 else 1){dialog,which->
                     method=if(which==0)"email" else "phone"
-                    toast(if(method=="email")"Elegiste correo electrónico" else "Elegiste número de celular")
+                    choose.text=if(method=="email")"Método de registro: correo electrónico" else "Método de registro: número de celular"
                     dialog.dismiss()
                 }.setNegativeButton("Cancelar",null).show()
         }
@@ -115,7 +116,7 @@ class MainActivity : Activity() {
         val builder=Request.Builder().url(supabaseUrl+path).header("apikey",supabasePublishableKey).header("Content-Type","application/json")
         if(!accessToken.isNullOrBlank())builder.header("Authorization","Bearer "+accessToken)
         val payload=body.toString().toRequestBody("application/json".toMediaTypeOrNull())
-        val request=if(method=="PATCH")builder.patch(payload).build() else builder.post(payload).build()
+        val request=when(method){"PUT"->builder.put(payload).build();"PATCH"->builder.patch(payload).build();else->builder.post(payload).build()}
         http.newCall(request).execute().use{res->
             val raw=res.body?.string()?:"{}"
             val data=try{JSONObject(raw)}catch(_:Exception){JSONObject()}
@@ -198,7 +199,7 @@ class MainActivity : Activity() {
                             }.show()
                     }
                 }else{
-                    supabaseCall("PATCH","/auth/v1/user",JSONObject().put("password",password),accessToken)
+                    supabaseCall("PUT","/auth/v1/user",JSONObject().put("password",password),accessToken)
                     val completed=backendAuthPost("/api/register/complete",JSONObject()
                         .put("name",name.trim()).put("username",username.trim().lowercase())
                         .put("password",password).put("method",method).put("contact",contact),accessToken)
@@ -211,7 +212,7 @@ class MainActivity : Activity() {
         header.text="Actualizando contraseña…"
         Thread{
             try{
-                supabaseCall("PATCH","/auth/v1/user",JSONObject().put("password",newPassword),accessToken)
+                supabaseCall("PUT","/auth/v1/user",JSONObject().put("password",newPassword),accessToken)
                 val completed=backendAuthPost("/api/recovery/complete",JSONObject()
                     .put("method",method).put("contact",contact).put("newPassword",newPassword),accessToken)
                 acceptAppSession(completed)
