@@ -123,14 +123,27 @@ export async function markConversationRead(conversationId, userId) {
   fail(messageError);
   return now;
 }
-export async function listMessages(conversationId) {
+export async function listMessages(conversationId, userId) {
   const { data, error } = await supabase.from("messages").select("*,profiles!messages_sender_id_fkey(*)").eq("conversation_id",conversationId).order("created_at",{ascending:true}).limit(500); fail(error);
   const ids=(data||[]).map(m=>m.id);
-  const { data: reactions, error: re } = ids.length ? await supabase.from("message_reactions").select("message_id,user_id,reaction").in("message_id",ids) : {data:[],error:null}; fail(re);
-  return (data||[]).map(m=>({ id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at, deliveredAt:m.delivered_at, readAt:m.read_at, reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) }));
+  const [{data:reactions,error:re},{data:hidden,error:he}] = await Promise.all([
+    ids.length ? supabase.from("message_reactions").select("message_id,user_id,reaction").in("message_id",ids) : Promise.resolve({data:[],error:null}),
+    userId ? supabase.from("message_hidden_for").select("message_id").eq("user_id",userId).in("message_id",ids) : Promise.resolve({data:[],error:null})
+  ]);
+  fail(re); fail(he);
+  const hiddenIds=new Set((hidden||[]).map(x=>x.message_id));
+  return (data||[]).filter(m=>!hiddenIds.has(m.id)).map(m=>({ id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at, deliveredAt:m.delivered_at, readAt:m.read_at, deletedAt:m.deleted_at||null, deletedBy:m.deleted_by||null, reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) }));
 }
 export async function getMessage(id) {
-  const { data,error } = await supabase.from("messages").select("id,conversation_id,sender_id").eq("id",id).maybeSingle(); fail(error); return data;
+  const { data,error } = await supabase.from("messages").select("id,conversation_id,sender_id,created_at,deleted_at").eq("id",id).maybeSingle(); fail(error); return data;
+}
+export async function deleteMessageForUser(messageId,userId) {
+  const {error}=await supabase.from("message_hidden_for").upsert({message_id:messageId,user_id:userId},{onConflict:"message_id,user_id"}); fail(error);
+}
+export async function deleteMessageForEveryone(messageId,userId) {
+  const {error}=await supabase.from("messages").update({body:"",media:null,deleted_at:new Date().toISOString(),deleted_by:userId}).eq("id",messageId).eq("sender_id",userId).is("deleted_at",null);
+  fail(error);
+  const {error:reactionError}=await supabase.from("message_reactions").delete().eq("message_id",messageId); fail(reactionError);
 }
 export async function toggleMessageReaction(messageId,userId,reaction) {
   const { data: existing,error: findError } = await supabase.from("message_reactions").select("reaction").eq("message_id",messageId).eq("user_id",userId).maybeSingle(); fail(findError);
