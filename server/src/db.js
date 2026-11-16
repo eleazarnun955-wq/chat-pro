@@ -140,6 +140,25 @@ export async function getMessage(id) {
 export async function deleteMessageForUser(messageId,userId) {
   const {error}=await supabase.from("message_hidden_for").upsert({message_id:messageId,user_id:userId},{onConflict:"message_id,user_id"}); fail(error);
 }
+export async function clearConversationHistory(conversationId,userId) {
+  let offset=0, hiddenCount=0;
+  while(true) {
+    const {data,error}=await supabase.from("messages").select("id")
+      .eq("conversation_id",conversationId).order("created_at",{ascending:true})
+      .range(offset,offset+999);
+    fail(error);
+    const rows=(data||[]).map(message=>({message_id:message.id,user_id:userId}));
+    if(rows.length) {
+      const {error:hideError}=await supabase.from("message_hidden_for")
+        .upsert(rows,{onConflict:"message_id,user_id"});
+      fail(hideError);
+      hiddenCount+=rows.length;
+    }
+    if(!data||data.length<1000)break;
+    offset+=1000;
+  }
+  return hiddenCount;
+}
 export async function deleteMessageForEveryone(messageId,userId) {
   // messages_have_content requires body text or media. Keep a non-empty tombstone
   // while clearing the original text and attachment so the delete is accepted.
