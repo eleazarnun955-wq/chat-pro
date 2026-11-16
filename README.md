@@ -2,8 +2,8 @@
 **Mensajería multiusuario para Android**
 
 ## Android
-- Paquete Android: `com.djsebas.chatpro.v166` (instalación independiente).
-- Versión: `1.6.6` (versionCode `16`).
+- Paquete Android: `com.djsebas.chatpro.v171` (instalación independiente; no reemplaza 1.7.0).
+- Versión: `1.7.1` (versionCode `21`).
 - Puede instalarse junto a las versiones anteriores de CHAT PRO.
 - APK: GitHub Actions → **Build CHAT PRO APK** → artifact **CHAT-PRO-debug**.
 
@@ -26,6 +26,7 @@
 - Reproducción en línea con soporte de solicitudes HTTP Range para audio y video.
 - Acceso a archivos de mensajes limitado a integrantes de la conversación; los estados vigentes conservan su visibilidad para usuarios registrados.
 - Eliminación de estados propios.
+- Eliminación real de mensajes para mí y para todos; borrado global con marcador interno compatible con la regla de contenido de PostgreSQL.
 - Cambio de contraseña y cierre de otras sesiones.
 - Descargas autenticadas a `Descargas/CHAT PRO`.
 
