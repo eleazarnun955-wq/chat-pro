@@ -157,6 +157,10 @@ export async function clearConversationHistory(conversationId,userId) {
     if(!data||data.length<1000)break;
     offset+=1000;
   }
+  const {error:readError}=await supabase.from("conversation_members")
+    .update({last_read_at:new Date().toISOString()})
+    .eq("conversation_id",conversationId).eq("user_id",userId);
+  fail(readError);
   return hiddenCount;
 }
 export async function deleteMessageForEveryone(messageId,userId) {
