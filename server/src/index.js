@@ -80,6 +80,11 @@ app.get("/api/users/search",auth,asyncRoute(async(q,r)=>{
  r.json({users:await db.searchUsers(term,q.user.id)});
 }));
 app.get("/api/conversations",auth,asyncRoute(async(q,r)=>r.json({conversations:await db.listConversations(q.user.id)})));
+app.post("/api/conversations/:id/clear-history",auth,asyncRoute(async(q,r)=>{
+ if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
+ const hiddenCount=await db.clearConversationHistory(q.params.id,q.user.id);
+ r.json({ok:true,hiddenCount,scope:"current-user"});
+}));
 app.post("/api/conversations",auth,asyncRoute(async(q,r)=>{
  const ids=Array.isArray(q.body?.members)?q.body.members.filter(x=>typeof x==="string"):[];
  const names=Array.isArray(q.body?.usernames)?q.body.usernames.map(x=>clean(x,24).toLowerCase()):[];
