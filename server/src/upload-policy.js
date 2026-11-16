@@ -36,7 +36,7 @@ const EXTENSION_TO_MIME = new Map([
 ]);
 export function resolveUploadExtension(originalName,mimetype) {
  const name=String(originalName||"").replace(/\\/g,"/");
- const rawExtension=name.slice(name.lastIndexOf("/")+1).match(/\\.[^.]+$/)?.[0]?.toLowerCase()||"";
+ const rawExtension=name.slice(name.lastIndexOf("/")+1).match(/\.[^.]+$/)?.[0]?.toLowerCase()||"";
  if(EXTENSION_TO_MIME.has(rawExtension))return rawExtension;
  const mime=String(mimetype||"").split(";")[0].trim().toLowerCase();
  return MIME_TO_EXTENSION.get(mime)||"";
