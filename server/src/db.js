@@ -141,8 +141,14 @@ export async function deleteMessageForUser(messageId,userId) {
   const {error}=await supabase.from("message_hidden_for").upsert({message_id:messageId,user_id:userId},{onConflict:"message_id,user_id"}); fail(error);
 }
 export async function deleteMessageForEveryone(messageId,userId) {
-  const {error}=await supabase.from("messages").update({body:"",media:null,deleted_at:new Date().toISOString(),deleted_by:userId}).eq("id",messageId).eq("sender_id",userId).is("deleted_at",null);
+  // messages_have_content requires body text or media. Keep a non-empty tombstone
+  // while clearing the original text and attachment so the delete is accepted.
+  const {data,error}=await supabase.from("messages")
+    .update({body:"[Mensaje eliminado]",media:null,deleted_at:new Date().toISOString(),deleted_by:userId})
+    .eq("id",messageId).eq("sender_id",userId).is("deleted_at",null)
+    .select("id").maybeSingle();
   fail(error);
+  if(!data) throw new Error("No se pudo eliminar el mensaje: ya no existe o no pertenece a tu cuenta");
   const {error:reactionError}=await supabase.from("message_reactions").delete().eq("message_id",messageId); fail(reactionError);
 }
 export async function toggleMessageReaction(messageId,userId,reaction) {
