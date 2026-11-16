@@ -624,7 +624,7 @@ class MainActivity : Activity() {
                     ".mov"->"video/quicktime"; ".mp3"->"audio/mpeg"; ".m4a"->"audio/mp4"; ".wav"->"audio/wav"
                     ".ogg"->"audio/ogg"; ".pdf"->"application/pdf"; else->mime
                 } else mime
-                val body=MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file",name,tmp.asRequestBody(uploadMime.toMediaTypeOrNull())).build()
+                val body=MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file",safeName,tmp.asRequestBody(uploadMime.toMediaTypeOrNull())).build()
                 val req=Request.Builder().url("$baseUrl/api/uploads").header("Authorization","Bearer $token").post(body).build()
                 http.newCall(req).execute().use{res->
                     val data=JSONObject(res.body?.string()?: "{}");if(!res.isSuccessful)throw Exception(data.optString("error","Error de subida"))
