@@ -12,3 +12,7 @@ create table if not exists public.message_hidden_for (
 
 create index if not exists message_hidden_for_user_idx
   on public.message_hidden_for(user_id, message_id);
+
+alter table public.message_hidden_for enable row level security;
+revoke all on table public.message_hidden_for from anon, authenticated;
+grant all on table public.message_hidden_for to service_role;
