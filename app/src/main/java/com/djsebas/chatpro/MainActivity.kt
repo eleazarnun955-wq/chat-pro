@@ -341,6 +341,8 @@ class MainActivity : Activity() {
                 runOnUiThread{renderConversationMessage(obj)}
             }
             socket?.on("message:reaction"){runOnUiThread{refreshConversationMessages()}}
+            socket?.on("message:deleted"){runOnUiThread{refreshConversationMessages()}}
+            socket?.on("message:hidden"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("conversation:read"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("conversation:delivered"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("presence:joined"){runOnUiThread{header.text="En línea · $currentTitle"}}
@@ -357,6 +359,10 @@ class MainActivity : Activity() {
         s.emit("conversation:send",JSONObject().put("text",text));composer.setText("")
     }
     private fun renderConversationMessage(obj:JSONObject) {
+        if(obj.optString("deletedAt").isNotBlank()) {
+            content.addView(note("🚫 Este mensaje fue eliminado para todos"))
+            return
+        }
         val user=obj.optJSONObject("user")
         val who=user?.optString("name")?: "Usuario"
         val text=obj.optString("text")
@@ -389,7 +395,21 @@ class MainActivity : Activity() {
         val summary=(0 until reactions.length()).mapNotNull{reactions.optJSONObject(it)?.optString("reaction")}.groupingBy{it}.eachCount().entries.joinToString("  "){"${it.key} ${it.value}"}
         if(summary.isNotBlank())content.addView(note("Reacciones: $summary"))
         val messageId=obj.optString("id")
-        if(messageId.isNotBlank())content.addView(action("Reaccionar  👍  ❤️  😂  🔥"){showMessageReactions(messageId)})
+        if(messageId.isNotBlank()) {
+            content.addView(action("Reaccionar  👍  ❤️  😂  🔥"){showMessageReactions(messageId)})
+            content.addView(action("⋮  Opciones del mensaje"){showMessageDeleteOptions(messageId,mine)})
+        }
+    }
+    private fun showMessageDeleteOptions(messageId:String,mine:Boolean) {
+        val options=if(mine) arrayOf("Eliminar para mí","Eliminar para todos") else arrayOf("Eliminar para mí")
+        AlertDialog.Builder(this).setTitle("Eliminar mensaje").setItems(options){_,which->
+            val mode=if(mine&&which==1)"everyone" else "me"
+            val explanation=if(mode=="everyone")"El mensaje desaparecerá para todos los participantes. Solo puedes hacerlo durante las primeras 48 horas." else "El mensaje se ocultará únicamente en tu cuenta."
+            AlertDialog.Builder(this).setTitle(if(mode=="everyone")"¿Eliminar para todos?" else "¿Eliminar para mí?")
+                .setMessage(explanation).setNegativeButton("Cancelar",null).setPositiveButton("Eliminar"){_,_->
+                    api("POST","/api/messages/$messageId/delete",JSONObject().put("mode",mode),{refreshConversationMessages()},{toast(it)})
+                }.show()
+        }.show()
     }
     private fun showMessageReactions(messageId:String) {
         val options=arrayOf("👍","❤️","😂","🔥","👏","😮","😢","🎉")
