@@ -407,7 +407,7 @@ class MainActivity : Activity() {
             val explanation=if(mode=="everyone")"El mensaje desaparecerá para todos los participantes. Solo puedes hacerlo durante las primeras 48 horas." else "El mensaje se ocultará únicamente en tu cuenta."
             AlertDialog.Builder(this).setTitle(if(mode=="everyone")"¿Eliminar para todos?" else "¿Eliminar para mí?")
                 .setMessage(explanation).setNegativeButton("Cancelar",null).setPositiveButton("Eliminar"){_,_->
-                    api("POST","/api/messages/$messageId/delete",JSONObject().put("mode",mode),{refreshConversationMessages()},{toast(it)})
+                    api("POST","/api/messages/$messageId/delete",JSONObject().put("mode",mode),{toast(if(mode=="everyone")"Mensaje eliminado para todos" else "Mensaje eliminado para ti");refreshConversationMessages()},{toast("No se pudo eliminar: $it")})
                 }.show()
         }.show()
     }
