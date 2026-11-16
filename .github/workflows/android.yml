@@ -16,6 +16,8 @@ jobs:
         run: |
           node --check server/src/index.js
           node --check server/src/db.js
+      - name: Test CHAT PRO upload compatibility
+        run: cd server && npm test
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

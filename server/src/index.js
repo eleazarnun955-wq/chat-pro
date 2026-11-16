@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { Server } from "socket.io";
 import multer from "multer";
+import { resolveUploadExtension, isSupportedUpload, uploadMimeForExtension } from "./upload-policy.js";
 import { randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import * as db from "./db.js";
 
@@ -157,23 +158,37 @@ app.delete("/api/statuses/:id",auth,asyncRoute(async(q,r)=>{
  await db.deleteStatus(q.params.id,q.user.id);r.json({ok:true});
 }));
 
-const storage=multer.diskStorage({destination:(_q,_f,cb)=>cb(null,uploadDir),filename:(_q,f,cb)=>cb(null,randomUUID()+path.extname(f.originalname).toLowerCase())});
-app.post("/api/uploads",auth,multer({storage,limits:{fileSize:MAX_UPLOAD_BYTES,files:1},fileFilter:(_q,f,cb)=>{
- const ext=path.extname(f.originalname).toLowerCase();
- const allowedExtensions=new Set([".mp3",".wav",".m4a",".flac",".aac",".ogg",".opus",".amr",".png",".jpg",".jpeg",".gif",".webp",".bmp",".heic",".mp4",".m4v",".mov",".webm",".3gp",".mkv",".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".txt",".csv",".zip",".rar",".7z"]);
- cb(allowedExtensions.has(ext)?null:new Error("Formato no permitido. Usa imágenes, videos, audio o documentos compatibles."));
-}}).single("file"),async(q,r)=>{
+const storage=multer.diskStorage({
+ destination:(_q,_f,cb)=>cb(null,uploadDir),
+ filename:(_q,f,cb)=>cb(null,randomUUID()+resolveUploadExtension(f.originalname,f.mimetype))
+});
+const upload=multer({
+ storage,
+ limits:{fileSize:MAX_UPLOAD_BYTES,files:1},
+ fileFilter:(_q,f,cb)=>{
+  if(isSupportedUpload(f.originalname,f.mimetype))return cb(null,true);
+  cb(new Error("Formato no compatible. Elige una imagen, video, audio o documento compatible."));
+ }
+}).single("file");
+app.post("/api/uploads",auth,(q,r,next)=>upload(q,r,error=>{
+ if(error)return next(error);
+ next();
+}),async(q,r)=>{
  try{
-  if(!q.file)return r.status(400).json({error:"Falta el archivo"});
-  const ext=path.extname(q.file.originalname).toLowerCase();
+  if(!q.file)return r.status(400).json({error:"No se recibió ningún archivo. Vuelve a seleccionarlo e intenta otra vez."});
+  const ext=resolveUploadExtension(q.file.originalname,q.file.mimetype);
+  if(!ext)return r.status(415).json({error:"No se pudo identificar el formato del archivo."});
   const objectName=randomUUID()+ext;
-  const mimeByExtension={".mp3":"audio/mpeg",".wav":"audio/wav",".m4a":"audio/mp4",".flac":"audio/flac",".aac":"audio/aac",".ogg":"audio/ogg",".opus":"audio/ogg",".amr":"audio/amr",".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg",".gif":"image/gif",".webp":"image/webp",".bmp":"image/bmp",".heic":"image/heic",".mp4":"video/mp4",".m4v":"video/mp4",".mov":"video/quicktime",".webm":"video/webm",".3gp":"video/3gpp",".mkv":"video/x-matroska",".pdf":"application/pdf",".doc":"application/msword",".docx":"application/vnd.openxmlformats-officedocument.wordprocessingml.document",".xls":"application/vnd.ms-excel",".xlsx":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",".ppt":"application/vnd.ms-powerpoint",".pptx":"application/vnd.openxmlformats-officedocument.presentationml.presentation",".txt":"text/plain",".csv":"text/csv",".zip":"application/zip",".rar":"application/vnd.rar",".7z":"application/x-7z-compressed"};
-  const contentType=q.file.mimetype&&q.file.mimetype!=="application/octet-stream"?q.file.mimetype:(mimeByExtension[ext]||"application/octet-stream");
+  const contentType=uploadMimeForExtension(ext);
   const buffer=fs.readFileSync(q.file.path);
   await db.uploadMedia(objectName,buffer,contentType);
   fs.unlinkSync(q.file.path);
   r.status(201).json({id:path.basename(objectName,ext),name:q.file.originalname,size:q.file.size,mimeType:contentType,downloadPath:"/api/uploads/"+encodeURIComponent(objectName)});
- }catch(e){if(q.file?.path&&fs.existsSync(q.file.path))fs.unlinkSync(q.file.path);console.error(e);r.status(500).json({error:"No se pudo guardar el archivo en Supabase Storage"})}
+ }catch(e){
+  if(q.file?.path&&fs.existsSync(q.file.path))fs.unlinkSync(q.file.path);
+  console.error("CHAT PRO upload failed:",e);
+  r.status(500).json({error:"No se pudo guardar el archivo. Intenta de nuevo."});
+ }
 });
 async function canReadUpload(uid,name){
  const mediaPath="/api/uploads/"+name;
