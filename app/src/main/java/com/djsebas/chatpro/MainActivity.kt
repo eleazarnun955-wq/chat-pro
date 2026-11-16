@@ -303,6 +303,7 @@ class MainActivity : Activity() {
         root.addView(row)
         root.addView(action("Cambiar fondo de este chat"){chooseWallpaper("chat_wallpaper_"+id)})
         root.addView(action("Agregar integrante al grupo o sala privada"){addConversationMemberDialog(id)})
+        root.addView(action("🧹 Limpiar historial"){confirmClearConversationHistory(id)})
         applyWallpaper("chat_wallpaper_"+id)
         api("GET","/api/conversations/$id/messages",null,{data->
             content.removeAllViews()
@@ -311,6 +312,18 @@ class MainActivity : Activity() {
             api("POST","/api/conversations/$id/read",JSONObject(),{},{})
             header.text="Conectando al chat en tiempo real…";connectConversation()
         },{header.text=it})
+    }
+    private fun confirmClearConversationHistory(conversationId:String) {
+        AlertDialog.Builder(this)
+            .setTitle("¿Limpiar historial?")
+            .setMessage("Se ocultarán todos los mensajes de esta conversación únicamente en tu cuenta. Los demás participantes conservarán sus mensajes y archivos.")
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton("Limpiar"){_,_->
+                api("POST","/api/conversations/$conversationId/clear-history",JSONObject(),{data->
+                    toast("Historial limpiado")
+                    refreshConversationMessages()
+                },{toast("No se pudo limpiar el historial: $it")})
+            }.show()
     }
     private fun addConversationMemberDialog(conversationId:String) {
         val username=field("Nombre de usuario a invitar")
