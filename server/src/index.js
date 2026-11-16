@@ -99,6 +99,25 @@ app.post("/api/rooms/:id/join",auth,asyncRoute(async(q,r)=>{
  if(!joined)return r.status(404).json({error:"La sala no existe o no es pública"});
  r.json({ok:true});
 }));
+app.post("/api/messages/:id/delete",auth,asyncRoute(async(q,r)=>{
+ const message=await db.getMessage(q.params.id);
+ if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
+ const mode=q.body?.mode;
+ if(mode==="me"){
+  await db.deleteMessageForUser(message.id,q.user.id);
+  io.to(message.conversation_id).emit("message:hidden",{messageId:message.id,userId:q.user.id});
+  return r.json({ok:true,mode});
+ }
+ if(mode==="everyone"){
+  if(message.sender_id!==q.user.id)return r.status(403).json({error:"Solo quien envió el mensaje puede eliminarlo para todos"});
+  if(message.deleted_at)return r.status(409).json({error:"El mensaje ya fue eliminado"});
+  if(Date.now()-new Date(message.created_at).getTime()>48*60*60*1000)return r.status(403).json({error:"Ya pasó el plazo de 48 horas para eliminarlo para todos"});
+  await db.deleteMessageForEveryone(message.id,q.user.id);
+  io.to(message.conversation_id).emit("message:deleted",{messageId:message.id,deletedBy:q.user.id,deletedAt:new Date().toISOString()});
+  return r.json({ok:true,mode});
+ }
+ return r.status(400).json({error:"Selecciona dónde eliminar el mensaje"});
+}));
 app.post("/api/messages/:id/reactions",auth,asyncRoute(async(q,r)=>{
  const message=await db.getMessage(q.params.id);
  if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
@@ -118,7 +137,7 @@ app.post("/api/conversations/:id/read",auth,asyncRoute(async(q,r)=>{
 }));
 app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
  if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
- r.json({messages:await db.listMessages(q.params.id)});
+ r.json({messages:await db.listMessages(q.params.id,q.user.id)});
 }));
 app.post("/api/conversations/:id/members",auth,asyncRoute(async(q,r)=>{
  const c=await db.getConversation(q.params.id);
@@ -240,7 +259,7 @@ io.on("connection",socket=>{
    for(const room of socket.rooms)if(room!==socket.id)socket.leave(room);
    socket.join(conversationId);socket.data.conversationId=conversationId;
    await db.markConversationDelivered(conversationId,user.id);
-   socket.emit("conversation:history",await db.listMessages(conversationId));
+   socket.emit("conversation:history",await db.listMessages(conversationId,user.id));
    socket.to(conversationId).emit("presence:joined",{user:db.publicUser(user)});
    socket.to(conversationId).emit("conversation:delivered",{userId:user.id,conversationId});
   }catch(e){socket.emit("chat:error",{message:"No se pudo cargar la conversación"})}
