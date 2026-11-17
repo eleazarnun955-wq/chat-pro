@@ -137,70 +137,118 @@ class MainActivity : Activity() {
     private fun showHome(tab:String) {
         socket?.disconnect()
         connectCallSocket()
-        // Diseño principal: navegación vertical a la izquierda y contenido a la derecha.
+        // Navegación inferior moderna inspirada en mensajería: Chats, Contactos, Estados y Llamadas.
         root=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
             setBackgroundColor(bg)
             setPadding(10,8,10,8)
         }
-        root.addView(TextView(this).apply {
-            text="CHAT PRO";textSize=25f;gravity=Gravity.CENTER
-            setTextColor(Color.WHITE);setPadding(4,8,4,2)
+        val topBar=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+            gravity=Gravity.CENTER_VERTICAL
+            setPadding(4,4,4,8)
+        }
+        val brand=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+        }
+        brand.addView(TextView(this).apply {
+            text="CHAT PRO";textSize=23f;setTextColor(Color.WHITE);typeface=android.graphics.Typeface.DEFAULT_BOLD
         })
-        root.addView(TextView(this).apply {
-            text=me.optString("name","Usuario")+" · @"+me.optString("username","")
-            textSize=12f;gravity=Gravity.CENTER;setTextColor(accent)
-            setPadding(4,0,4,7)
+        brand.addView(TextView(this).apply {
+            text=me.optString("name","Usuario")+"  ·  @"+me.optString("username","")
+            textSize=11f;setTextColor(accent)
         })
+        topBar.addView(brand,LinearLayout.LayoutParams(0,-2,1f))
+        val profile=TextView(this).apply {
+            text="👤";textSize=22f;gravity=Gravity.CENTER
+            setTextColor(Color.WHITE);setPadding(13,9,13,9)
+            background=GradientDrawable().apply{setColor(Color.argb(210,35,42,65));cornerRadius=24f;setStroke(1,Color.argb(150,accent))}
+            contentDescription="Abrir perfil"
+            setOnClickListener{showHome("Perfil")}
+        }
+        topBar.addView(profile,LinearLayout.LayoutParams(48,48))
+        root.addView(topBar)
         header=TextView(this).apply {
-            text="";textSize=13f;setTextColor(Color.LTGRAY)
-            setPadding(4,6,4,8)
+            text="";textSize=12f;setTextColor(Color.LTGRAY)
+            setPadding(5,5,5,7)
         }
         root.addView(header)
-        val workspace=LinearLayout(this).apply {
-            orientation=LinearLayout.HORIZONTAL
-        }
-        val nav=LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL
-            setPadding(0,2,7,2)
-        }
-        val navWidth=(112*resources.displayMetrics.density).toInt()
-        listOf(
-            "💬\nChats" to "Chats",
-            "👥\nContactos" to "Contactos",
-            "🌐\nSalas" to "Salas",
-            "🟣\nEstados" to "Estados",
-            "👤\nPerfil" to "Perfil"
-        ).forEach { (label,destination) ->
-            val item=action(label){showHome(destination)}
-            item.textSize=14f
-            item.minHeight=68
-            item.setPadding(4,8,4,8)
-            nav.addView(item,LinearLayout.LayoutParams(-1,0,1f).apply {
-                setMargins(0,3,0,3)
-            })
-        }
         val mainScroll=ScrollView(this)
         content=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
-            setPadding(2,4,2,10)
+            setPadding(2,4,2,12)
         }
         mainScroll.addView(content)
-        workspace.addView(nav,LinearLayout.LayoutParams(navWidth,-1))
-        workspace.addView(mainScroll,LinearLayout.LayoutParams(0,-1,1f))
-        root.addView(workspace,LinearLayout.LayoutParams(-1,0,1f))
-        root.addView(action("🖼  Cambiar fondo principal"){
-            chooseWallpaper("home_wallpaper")
-        })
+        root.addView(mainScroll,LinearLayout.LayoutParams(-1,0,1f))
+        val bottom=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+            gravity=Gravity.CENTER
+            setPadding(4,7,4,4)
+            background=GradientDrawable().apply {
+                setColor(Color.argb(235,20,25,43));cornerRadius=24f
+                setStroke(1,Color.argb(110,125,135,170))
+            }
+        }
+        val tabs=listOf(
+            Triple("💬","Chats","Chats"),
+            Triple("👥","Contactos","Contactos"),
+            Triple("🟣","Estados","Estados"),
+            Triple("📞","Llamadas","Llamadas")
+        )
+        tabs.forEach { (symbol,label,destination) ->
+            val selected=tab==destination
+            val item=LinearLayout(this).apply {
+                orientation=LinearLayout.VERTICAL
+                gravity=Gravity.CENTER
+                setPadding(3,7,3,7)
+                background=GradientDrawable().apply {
+                    setColor(if(selected)Color.argb(75,accent) else Color.TRANSPARENT)
+                    cornerRadius=18f
+                }
+                setOnClickListener{showHome(destination)}
+            }
+            item.addView(TextView(this).apply {
+                text=symbol;textSize=19f;gravity=Gravity.CENTER
+                setTextColor(if(selected)Color.WHITE else Color.LTGRAY)
+            })
+            item.addView(TextView(this).apply {
+                text=label;textSize=10f;gravity=Gravity.CENTER
+                setTextColor(if(selected)Color.WHITE else Color.LTGRAY)
+                typeface=if(selected)android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+            })
+            bottom.addView(item,LinearLayout.LayoutParams(0,-2,1f))
+        }
+        root.addView(bottom,LinearLayout.LayoutParams(-1,-2).apply{topMargin=7})
         setContentView(root)
         applyWallpaper("home_wallpaper")
         when(tab){
             "Chats"->loadConversations()
             "Contactos"->showContacts()
-            "Salas"->showPublicRooms()
             "Estados"->showStatuses()
+            "Llamadas"->showCalls()
+            "Salas"->showPublicRooms()
             "Perfil"->showProfile()
         }
+    }
+    private fun showCalls() {
+        content.removeAllViews()
+        header.text="Llamadas de voz y videollamadas · abre un chat privado para llamar"
+        content.addView(note("Tus llamadas se realizan desde conversaciones privadas. Selecciona un contacto para abrir el chat y usar los botones de llamada o videollamada."))
+        api("GET","/api/conversations",null,{data->
+            val arr=data.optJSONArray("conversations")?:JSONArray()
+            var found=false
+            for(i in 0 until arr.length()){
+                val c=arr.optJSONObject(i)?:continue
+                if(c.optString("type")!="direct")continue
+                val members=c.optJSONArray("members")?:JSONArray()
+                val myId=me.optString("id")
+                val peerId=(0 until members.length()).map{members.optString(it)}.firstOrNull{it.isNotBlank()&&it!=myId}?:continue
+                found=true
+                val title=c.optString("title").ifBlank{"Chat privado"}
+                content.addView(action("📞  $title  ·  Abrir para llamar"){openConversation(c.optString("id"),title,peerId,"direct")})
+            }
+            if(!found)content.addView(note("Todavía no tienes conversaciones privadas. Entra a Contactos para buscar personas."))
+        },{header.text=it})
     }
     private fun loadConversations() {
         header.text="Tus conversaciones privadas y grupos"
