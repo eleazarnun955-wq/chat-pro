@@ -256,9 +256,77 @@ io.use(async(socket,next)=>{
   socket.data.user=user;next();
  }catch(e){next(e)}
 });
+
+const activeCalls=new Map(),userCalls=new Map();
+function finishCall(callId,event="call:ended",reason="ended"){
+ const call=activeCalls.get(callId);if(!call)return;
+ clearTimeout(call.timer);activeCalls.delete(callId);
+ userCalls.delete(call.callerId);userCalls.delete(call.calleeId);
+ const payload={callId,reason};
+ io.to("user:"+call.callerId).emit(event,payload);
+ io.to("user:"+call.calleeId).emit(event,payload);
+}
+
 io.on("connection",socket=>{
  const user=socket.data.user;
  if(user){socket.join("user:"+user.id);db.updateLastSeen(user.id).catch(console.error);io.emit("presence:changed",{userId:user.id,online:true});}
+
+ socket.on("call:start",async payload=>{
+  try{
+   if(!user)return;
+   const conversationId=clean(payload?.conversationId,80),toUserId=clean(payload?.toUserId,80);
+   const mediaType=payload?.mediaType==="video"?"video":"audio";
+   const conversation=await db.getConversation(conversationId);
+   if(!conversation||conversation.type!=="direct"||!await member(conversationId,user.id)||!await member(conversationId,toUserId)){
+    socket.emit("call:error",{message:"Las llamadas solo están disponibles en chats privados entre dos personas"});return;
+   }
+   if(user.id===toUserId){socket.emit("call:error",{message:"No puedes llamarte a ti mismo"});return;}
+   const {data:members,error}=await db.supabase.from("conversation_members").select("user_id").eq("conversation_id",conversationId);
+   if(error)throw error;
+   if((members||[]).length!==2||!(members||[]).some(x=>x.user_id===toUserId)){
+    socket.emit("call:error",{message:"Este chat no es una conversación privada individual"});return;
+   }
+   if(userCalls.has(user.id)||userCalls.has(toUserId)){
+    socket.emit("call:error",{message:"Uno de los usuarios ya está en otra llamada"});return;
+   }
+   const targetSockets=await io.in("user:"+toUserId).fetchSockets();
+   if(!targetSockets.length){socket.emit("call:unavailable",{message:"La otra persona no está conectada en CHAT PRO"});return;}
+   const callId=randomUUID();
+   const call={callId,conversationId,callerId:user.id,calleeId:toUserId,mediaType,accepted:false,timer:null};
+   call.timer=setTimeout(()=>finishCall(callId,"call:ended","no-answer"),45000);
+   call.timer.unref?.();
+   activeCalls.set(callId,call);userCalls.set(user.id,callId);userCalls.set(toUserId,callId);
+   io.to("user:"+toUserId).emit("call:incoming",{callId,conversationId,mediaType,fromUser:db.publicUser(user)});
+   socket.emit("call:started",{callId,conversationId,mediaType});
+  }catch(error){console.error("call:start",error);socket.emit("call:error",{message:"No se pudo iniciar la llamada"});}
+ });
+ socket.on("call:accept",payload=>{
+  const call=activeCalls.get(clean(payload?.callId,80));
+  if(!user||!call||call.calleeId!==user.id)return;
+  clearTimeout(call.timer);call.accepted=true;
+  io.to("user:"+call.callerId).emit("call:accepted",{callId:call.callId});
+  socket.emit("call:accepted",{callId:call.callId});
+ });
+ socket.on("call:reject",payload=>{
+  const call=activeCalls.get(clean(payload?.callId,80));
+  if(!user||!call||![call.callerId,call.calleeId].includes(user.id))return;
+  finishCall(call.callId,"call:rejected","rejected");
+ });
+ socket.on("call:end",payload=>{
+  const call=activeCalls.get(clean(payload?.callId,80));
+  if(!user||!call||![call.callerId,call.calleeId].includes(user.id))return;
+  finishCall(call.callId,"call:ended","ended");
+ });
+ for(const event of ["call:offer","call:answer","call:ice"]){
+  socket.on(event,payload=>{
+   const call=activeCalls.get(clean(payload?.callId,80));
+   if(!user||!call||!call.accepted||![call.callerId,call.calleeId].includes(user.id))return;
+   const targetId=call.callerId===user.id?call.calleeId:call.callerId;
+   const signal=event==="call:ice"?payload?.candidate:payload?.sdp;
+   if(!signal||typeof signal!=="object")return;
+   io.to("user:"+targetId).emit(event,{callId:call.callId,[event==="call:ice"?"candidate":"sdp"]:signal});
+  });
+ }
  socket.on("conversation:join",async({conversationId}={})=>{
   try{if(!user||!await member(conversationId,user.id))return;
    for(const room of socket.rooms)if(room!==socket.id)socket.leave(room);
@@ -283,7 +351,14 @@ io.on("connection",socket=>{
   }catch(e){socket.emit("chat:error",{message:"No se pudo enviar el mensaje"})}
  });
  socket.on("room:join",({roomId}={})=>{if(process.env.ALLOW_LEGACY_ROOMS!=="false"||!roomId)return;});
- socket.on("disconnect",()=>{if(user){db.updateLastSeen(user.id).catch(console.error);io.emit("presence:changed",{userId:user.id,online:false,lastSeenAt:new Date().toISOString()})}if(socket.data.conversationId)socket.to(socket.data.conversationId).emit("presence:left",{user:user?db.publicUser(user):null})});
+ socket.on("disconnect",()=>{
+  if(user){
+   db.updateLastSeen(user.id).catch(console.error);
+   io.emit("presence:changed",{userId:user.id,online:false,lastSeenAt:new Date().toISOString()});
+   setTimeout(async()=>{try{if(!(await io.in("user:"+user.id).fetchSockets()).length){const callId=userCalls.get(user.id);if(callId)finishCall(callId,"call:ended","disconnected");}}catch(error){console.error(error);}},300);
+  }
+  if(socket.data.conversationId)socket.to(socket.data.conversationId).emit("presence:left",{user:user?db.publicUser(user):null});
+ });
 });
 app.use((err,_q,r,_next)=>{console.error(err);r.status(err.status||(err instanceof multer.MulterError?413:400)).json({error:err.message||"Error al procesar la solicitud"})});
 db.verifyConnection().then(()=>server.listen(PORT,"0.0.0.0",()=>console.log("CHAT PRO 2 connected to Supabase and listening on "+PORT))).catch(error=>{console.error("CHAT PRO Supabase connection failed:",error);process.exit(1)});
