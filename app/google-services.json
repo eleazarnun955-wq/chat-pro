@@ -1,0 +1,28 @@
+{
+  "project_info": {
+    "project_number": "599056662245",
+    "project_id": "chat-pro-6a6d2",
+    "storage_bucket": "chat-pro-6a6d2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:599056662245:android:a46c15862d09b2fe925e0c",
+        "android_client_info": {
+          "package_name": "com.djsebas.chatpro.v180"
+        }
+      },
+      "api_key": [
+        {
+          "current_key": "AIzaSyBzK4LH6nUlI7hoX7uP9uYGT7ZqpBeIvp8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
