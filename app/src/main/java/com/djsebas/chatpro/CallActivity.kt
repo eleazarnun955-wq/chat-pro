@@ -259,6 +259,7 @@ class CallActivity : Activity() {
             runOnUiThread {
                 if (isCaller) {
                     statusView?.text = "Llamando a " + peerName
+                    socket?.emit("call:ready", JSONObject().put("callId", callId))
                 } else {
                     statusView?.text = "Aceptando llamada…"
                     socket?.emit("call:accept", JSONObject().put("callId", callId))
