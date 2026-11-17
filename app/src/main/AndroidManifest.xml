@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
@@ -8,6 +10,9 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application android:allowBackup="true" android:label="CHAT PRO" android:icon="@drawable/chat_pro_icon" android:roundIcon="@drawable/chat_pro_icon"
         android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false">
+        <service android:name=".ChatProMessagingService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
         <activity android:name=".CallActivity" android:exported="false" android:screenOrientation="portrait" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
