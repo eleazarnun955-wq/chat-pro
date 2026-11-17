@@ -63,6 +63,7 @@ class MainActivity : Activity() {
     private var voiceFile:File?=null
     private var isRecordingVoice=false
     private var currentConversationType="direct"
+    private var appNeedsUnlock=false
     private val notificationChannelId="chatpro_messages"
     private lateinit var root:LinearLayout
     private lateinit var content:LinearLayout
@@ -510,12 +511,13 @@ class MainActivity : Activity() {
         val notification=builder.setSmallIcon(android.R.drawable.sym_action_chat).setContentTitle(sender).setContentText(body).setAutoCancel(true).setContentIntent(pending).build()
         try { (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify((conversationId+sender).hashCode(),notification) } catch(_:Exception) {}
     }
+    private fun hashPin(value:String):String = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun showPinGate(onUnlock:()->Unit) {
         val pin=EditText(this).apply { hint="PIN de acceso";inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD }
         AlertDialog.Builder(this).setTitle("CHAT PRO bloqueado").setMessage("Introduce tu PIN para continuar.").setView(pin)
             .setCancelable(false).setPositiveButton("Desbloquear"){_,_->
                 val saved=getSharedPreferences("chatpro",MODE_PRIVATE).getString("app_pin","")?:""
-                if(pin.text.toString()==saved)onUnlock() else { toast("PIN incorrecto");showPinGate(onUnlock) }
+                if(hashPin(pin.text.toString())==saved)onUnlock() else { toast("PIN incorrecto");showPinGate(onUnlock) }
             }.show()
     }
     private fun showPinSettings() {
@@ -663,25 +665,23 @@ class MainActivity : Activity() {
             elevation=2f
         }
         content.addView(card,LinearLayout.LayoutParams(-1,-2).apply{setMargins(2,5,2,7)})
-        if(text.isNotBlank()) {
-            val author=TextView(this).apply {
-                this.text=who
-                textSize=12f
-                typeface=android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(accent)
-                if(currentConversationType=="room"||currentConversationType=="group") {
-                    setOnClickListener { showRoomUserActions(user?.optString("id")?:"",who) }
-                    contentDescription="Opciones para $who"
-                }
-            }
-            card.addView(author)
-            card.addView(TextView(this).apply {
-                this.text="$text$receipt"
-                textSize=15f
-                setTextColor(Color.WHITE)
-                setShadowLayer(2f,0f,1f,Color.BLACK)
-            })
+        val author=TextView(this).apply {
+            this.text=who
+            textSize=12f
+            typeface=android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(accent)
+            if(currentConversationType=="room"||currentConversationType=="group") {
+                setOnClickListener { showRoomUserActions(user?.optString("id")?:"",who) }
+                contentDescription="Opciones para $who"
         }
+        }
+        card.addView(author)
+        if(text.isNotBlank())card.addView(TextView(this).apply {
+            this.text="$text$receipt"
+            textSize=15f
+            setTextColor(Color.WHITE)
+            setShadowLayer(2f,0f,1f,Color.BLACK)
+        })
         val media=obj.optJSONObject("media")
         if(media!=null){
             val mediaName=media.optString("name","Archivo")
@@ -1071,6 +1071,17 @@ class MainActivity : Activity() {
         val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(2,5,2,7);layoutParams=lp
     }
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
+    override fun onPause(){
+        super.onPause()
+        if(token.isNotBlank() && getSharedPreferences("chatpro",MODE_PRIVATE).getString("app_pin","").orEmpty().isNotBlank()) appNeedsUnlock=true
+    }
+    override fun onResume(){
+        super.onResume()
+        if(appNeedsUnlock && token.isNotBlank()) {
+            appNeedsUnlock=false
+            showPinGate { }
+        }
+    }
     override fun onDestroy(){
         socket?.disconnect();socket?.off()
         callSocket?.disconnect();callSocket?.off()
