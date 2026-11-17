@@ -8,6 +8,7 @@ import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
 import androidx.biometric.BiometricPrompt
+import androidx.fragment.app.FragmentActivity
 import androidx.core.content.ContextCompat
 import java.security.MessageDigest
 import java.util.concurrent.Executor
@@ -39,7 +40,7 @@ import java.util.concurrent.TimeUnit
 import io.socket.client.IO
 import io.socket.client.Socket
 
-class MainActivity : Activity() {
+class MainActivity : FragmentActivity() {
     private val bg=Color.rgb(13,16,29)
     private val panel=Color.rgb(25,30,49)
     private var accent=Color.rgb(154,111,255)
