@@ -156,63 +156,93 @@ class MainActivity : FragmentActivity() {
     private fun showHome(tab:String) {
         socket?.disconnect()
         connectCallSocket()
-        // Diseño principal: navegación vertical a la izquierda y contenido a la derecha.
+        window.statusBarColor=Color.rgb(7,94,84)
+        window.navigationBarColor=Color.rgb(18,28,34)
         root=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
-            setBackgroundColor(bg)
-            setPadding(10,8,10,8)
+            setBackgroundColor(Color.rgb(11,20,26))
+            setPadding(0,0,0,0)
         }
-        root.addView(TextView(this).apply {
-            text="CHAT PRO";textSize=25f;gravity=Gravity.CENTER
-            setTextColor(Color.WHITE);setPadding(4,8,4,2)
+        val top=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(20,15,16,12)
+            setBackgroundColor(Color.rgb(7,94,84))
+        }
+        val titleRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
+        val brand=TextView(this).apply {
+            text="CHAT PRO";textSize=23f;typeface=android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE);gravity=Gravity.CENTER_VERTICAL
+        }
+        titleRow.addView(brand,LinearLayout.LayoutParams(0,-2,1f))
+        val search=TextView(this).apply {
+            text="⌕";textSize=30f;gravity=Gravity.CENTER;setTextColor(Color.WHITE)
+            setPadding(8,0,14,0);setOnClickListener{showHome("Contactos")}
+        }
+        val more=TextView(this).apply {
+            text="⋮";textSize=27f;gravity=Gravity.CENTER;setTextColor(Color.WHITE)
+            setPadding(8,0,4,0);setOnClickListener{showHome("Perfil")}
+        }
+        titleRow.addView(search,LinearLayout.LayoutParams(42,48))
+        titleRow.addView(more,LinearLayout.LayoutParams(35,48))
+        top.addView(titleRow)
+        top.addView(TextView(this).apply {
+            text=me.optString("name","Usuario")+"  ·  @"+me.optString("username","")
+            textSize=12f;setTextColor(Color.rgb(215,242,235));setPadding(1,2,0,0)
         })
-        root.addView(TextView(this).apply {
-            text=me.optString("name","Usuario")+" · @"+me.optString("username","")
-            textSize=12f;gravity=Gravity.CENTER;setTextColor(accent)
-            setPadding(4,0,4,7)
-        })
+        root.addView(top)
+        val tabs=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+            setPadding(10,0,10,0)
+            setBackgroundColor(Color.rgb(7,94,84))
+        }
+        listOf("Chats" to "◉","Contactos" to "♙","Salas" to "◎","Estados" to "◌","Perfil" to "☻").forEach { (name,glyph) ->
+            val selected=tab==name
+            val item=LinearLayout(this).apply {
+                orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
+                setPadding(2,8,2,9)
+                setOnClickListener{showHome(name)}
+                if(selected) background=GradientDrawable().apply {
+                    setColor(Color.argb(45,255,255,255));cornerRadius=14f
+                }
+            }
+            item.addView(TextView(this).apply {
+                text=glyph;textSize=20f;gravity=Gravity.CENTER
+                setTextColor(if(selected)Color.WHITE else Color.rgb(193,220,213))
+            })
+            item.addView(TextView(this).apply {
+                text=name;textSize=11f;gravity=Gravity.CENTER
+                typeface=if(selected)android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+                setTextColor(if(selected)Color.WHITE else Color.rgb(193,220,213))
+            })
+            tabs.addView(item,LinearLayout.LayoutParams(0,-2,1f))
+        }
+        root.addView(tabs)
         header=TextView(this).apply {
-            text="";textSize=13f;setTextColor(Color.LTGRAY)
-            setPadding(4,6,4,8)
+            text="";textSize=12f;setTextColor(Color.rgb(173,190,198))
+            setPadding(17,11,17,5)
         }
         root.addView(header)
-        val workspace=LinearLayout(this).apply {
-            orientation=LinearLayout.HORIZONTAL
-        }
-        val nav=LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL
-            setPadding(0,2,7,2)
-        }
-        val navWidth=(112*resources.displayMetrics.density).toInt()
-        listOf(
-            "💬\nChats" to "Chats",
-            "👥\nContactos" to "Contactos",
-            "🌐\nSalas" to "Salas",
-            "🟣\nEstados" to "Estados",
-            "👤\nPerfil" to "Perfil"
-        ).forEach { (label,destination) ->
-            val item=action(label){showHome(destination)}
-            item.textSize=14f
-            item.minHeight=68
-            item.setPadding(4,8,4,8)
-            nav.addView(item,LinearLayout.LayoutParams(-1,0,1f).apply {
-                setMargins(0,3,0,3)
-            })
-        }
-        val mainScroll=ScrollView(this)
+        val mainScroll=ScrollView(this).apply { fillViewport=true }
         content=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
-            setPadding(2,4,2,10)
+            setPadding(12,5,12,18)
         }
         mainScroll.addView(content)
-        workspace.addView(nav,LinearLayout.LayoutParams(navWidth,-1))
-        workspace.addView(mainScroll,LinearLayout.LayoutParams(0,-1,1f))
-        root.addView(workspace,LinearLayout.LayoutParams(-1,0,1f))
-        root.addView(action("🖼  Cambiar fondo principal"){
-            chooseWallpaper("home_wallpaper")
-        })
+        root.addView(mainScroll,LinearLayout.LayoutParams(-1,0,1f))
+        val footer=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
+            setPadding(14,8,14,8);setBackgroundColor(Color.rgb(18,28,34))
+        }
+        footer.addView(TextView(this).apply {
+            text="🔒  Mensajería privada protegida";textSize=11f
+            setTextColor(Color.rgb(174,195,201))
+        },LinearLayout.LayoutParams(0,-2,1f))
+        footer.addView(TextView(this).apply {
+            text="⚙";textSize=22f;gravity=Gravity.CENTER;setTextColor(Color.WHITE)
+            setOnClickListener{showHome("Perfil")}
+        },LinearLayout.LayoutParams(42,40))
+        root.addView(footer)
         setContentView(root)
-        applyWallpaper("home_wallpaper")
         when(tab){
             "Chats"->loadConversations()
             "Contactos"->showContacts()
@@ -1021,15 +1051,20 @@ class MainActivity : FragmentActivity() {
         setBackground(GradientDrawable().apply{setColor(Color.argb(235,25,30,49));cornerRadius=18f;setStroke(1,Color.rgb(85,96,128))})
     }
     private fun action(label:String,click:()->Unit)=Button(this).apply{
-        text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=58
-        gravity=Gravity.CENTER;letterSpacing=0.015f;setPadding(18,12,18,12)
-        stateListAnimator=null
-        val top=Color.rgb((Color.red(accent)+28).coerceAtMost(255),(Color.green(accent)+28).coerceAtMost(255),(Color.blue(accent)+28).coerceAtMost(255))
-        val shape=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(top,accent)).apply{
-            cornerRadius=20f;setStroke(1,Color.argb(190,225,220,255))
-        }
-        background=RippleDrawable(ColorStateList.valueOf(Color.argb(75,255,255,255)),shape,null)
-        elevation=5f
+        text=label;setTextColor(Color.rgb(232,240,243));textSize=15f;isAllCaps=false
+        minHeight=56;gravity=Gravity.CENTER_VERTICAL or Gravity.START
+        setPadding(18,10,16,10);stateListAnimator=null
+        background=RippleDrawable(
+            ColorStateList.valueOf(Color.argb(35,255,255,255)),
+            GradientDrawable().apply {
+                setColor(Color.rgb(27,39,46));cornerRadius=17f
+                setStroke(1,Color.rgb(43,59,67))
+            },null
+        )
+        elevation=1f
+        val lp=LinearLayout.LayoutParams(-1,-2)
+        lp.setMargins(2,5,2,5)
+        layoutParams=lp
         setOnClickListener{click()}
     }
     private fun note(value:String)=TextView(this).apply{
