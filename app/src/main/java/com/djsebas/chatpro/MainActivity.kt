@@ -162,7 +162,7 @@ class MainActivity : Activity() {
         val profile=TextView(this).apply {
             text="👤";textSize=22f;gravity=Gravity.CENTER
             setTextColor(Color.WHITE);setPadding(13,9,13,9)
-            background=GradientDrawable().apply{setColor(Color.argb(210,35,42,65));cornerRadius=24f;setStroke(1,Color.argb(150,accent))}
+            background=GradientDrawable().apply{setColor(Color.argb(210,35,42,65));cornerRadius=24f;setStroke(1,Color.argb(150,Color.red(accent),Color.green(accent),Color.blue(accent)))}
             contentDescription="Abrir perfil"
             setOnClickListener{showHome("Perfil")}
         }
@@ -202,7 +202,7 @@ class MainActivity : Activity() {
                 gravity=Gravity.CENTER
                 setPadding(3,7,3,7)
                 background=GradientDrawable().apply {
-                    setColor(if(selected)Color.argb(75,accent) else Color.TRANSPARENT)
+                    setColor(if(selected)Color.argb(75,Color.red(accent),Color.green(accent),Color.blue(accent)) else Color.TRANSPARENT)
                     cornerRadius=18f
                 }
                 setOnClickListener{showHome(destination)}
