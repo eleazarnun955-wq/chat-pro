@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     private var me=JSONObject()
     private var currentConversation=""
     private var currentTitle=""
+    private var currentPeerId=""
     private var uploadMode="chat"
     private var pendingStatusCaption=""
     private var pendingWallpaperKey="home_wallpaper"
@@ -211,7 +212,10 @@ class MainActivity : Activity() {
                 val title=c.optString("title").ifBlank{if(c.optString("type")=="group")"Grupo" else "Chat privado"}
                 val unread=c.optInt("unread",0)
                 val unreadLabel=if(unread>0)"  ·  $unread sin leer" else ""
-                content.addView(action("✉  $title  ·  ${c.optString("type")}$unreadLabel"){openConversation(id,title)})
+                val memberIds=c.optJSONArray("members")?:JSONArray()
+                val myId=me.optString("id")
+                val peerId=(0 until memberIds.length()).map{memberIds.optString(it)}.firstOrNull{it.isNotBlank()&&it!=myId}?: ""
+                content.addView(action("✉  $title  ·  ${c.optString("type")}$unreadLabel"){openConversation(id,title,peerId,c.optString("type"))})
             }
         },{header.text=it})
     }
@@ -288,11 +292,11 @@ class MainActivity : Activity() {
     private fun createConversation(userId:String,name:String) {
         api("POST","/api/conversations",JSONObject().put("members",JSONArray().put(userId)),{data->
             val c=data.optJSONObject("conversation")?:return@api
-            openConversation(c.optString("id"),name)
+            openConversation(c.optString("id"),name,userId,"direct")
         },{header.text=it})
     }
-    private fun openConversation(id:String,title:String) {
-        currentConversation=id;currentTitle=title
+    private fun openConversation(id:String,title:String,peerId:String="",conversationType:String="direct") {
+        currentConversation=id;currentTitle=title;currentPeerId=if(conversationType=="direct")peerId else ""
         frame(title,"Conversación protegida · CHAT PRO")
         header.text="Cargando historial…"
         composer=field("Escribe un mensaje")
@@ -301,6 +305,12 @@ class MainActivity : Activity() {
         row.addView(composer,LinearLayout.LayoutParams(0,52,1f))
         row.addView(action("Enviar"){sendMessage()},LinearLayout.LayoutParams(85,52))
         root.addView(row)
+        if(conversationType=="direct"&&currentPeerId.isNotBlank()){
+            val callRow=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+            callRow.addView(action("📞 Llamada de voz"){startCall("audio")},LinearLayout.LayoutParams(0,54,1f))
+            callRow.addView(action("🎥 Videollamada"){startCall("video")},LinearLayout.LayoutParams(0,54,1f))
+            root.addView(callRow)
+        }
         root.addView(action("Cambiar fondo de este chat"){chooseWallpaper("chat_wallpaper_"+id)})
         root.addView(action("Agregar integrante al grupo o sala privada"){addConversationMemberDialog(id)})
         root.addView(action("🧹 Limpiar historial"){confirmClearConversationHistory(id)})
@@ -360,9 +370,59 @@ class MainActivity : Activity() {
             socket?.on("conversation:delivered"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("presence:joined"){runOnUiThread{header.text="En línea · $currentTitle"}}
             socket?.on("presence:left"){runOnUiThread{header.text="Miembro desconectado · $currentTitle"}}
+            socket?.on("call:incoming"){args->
+                val obj=args.firstOrNull() as? JSONObject?:return@on
+                runOnUiThread{showIncomingCall(obj)}
+            }
+            socket?.on("call:started"){args->
+                val obj=args.firstOrNull() as? JSONObject?:return@on
+                runOnUiThread{launchCallActivity(obj.optString("callId"),obj.optString("mediaType"),true,currentTitle)}
+            }
+            socket?.on("call:error"){args->
+                val obj=args.firstOrNull() as? JSONObject?:return@on
+                runOnUiThread{toast(obj.optString("message","No se pudo iniciar la llamada"))}
+            }
+            socket?.on("call:unavailable"){args->
+                val obj=args.firstOrNull() as? JSONObject?:return@on
+                runOnUiThread{toast(obj.optString("message","La otra persona no está conectada"))}
+            }
+            socket?.on("call:ended"){args->
+                val obj=args.firstOrNull() as? JSONObject?:return@on
+                runOnUiThread{if(obj.optString("reason")=="no-answer")toast("La persona no respondió")}
+            }
+            socket?.on("call:rejected"){runOnUiThread{toast("La llamada fue rechazada")}}
             socket?.once(Socket.EVENT_CONNECT){socket?.emit("conversation:join",JSONObject().put("conversationId",currentConversation))}
             socket?.connect()
         }catch(e:Exception){header.text="Chat en línea no disponible: ${e.message}"}
+    }
+    private fun startCall(mediaType:String) {
+        val s=socket
+        if(currentPeerId.isBlank()){toast("Las llamadas solo están disponibles en chats privados individuales");return}
+        if(s==null||!s.connected()){toast("Espera a que el chat esté conectado para llamar");return}
+        s.emit("call:start",JSONObject().put("conversationId",currentConversation).put("toUserId",currentPeerId).put("mediaType",mediaType))
+        toast(if(mediaType=="video")"Solicitando videollamada…" else "Llamando…")
+    }
+    private fun showIncomingCall(call:JSONObject) {
+        val callId=call.optString("callId")
+        val mediaType=call.optString("mediaType","audio")
+        val from=call.optJSONObject("fromUser")?:JSONObject()
+        val name=from.optString("name","Tu contacto")
+        AlertDialog.Builder(this)
+            .setTitle(if(mediaType=="video")"Videollamada entrante" else "Llamada entrante")
+            .setMessage(name+" te está llamando")
+            .setNegativeButton("Rechazar"){_,_->socket?.emit("call:reject",JSONObject().put("callId",callId))}
+            .setPositiveButton("Aceptar"){_,_->launchCallActivity(callId,mediaType,false,name)}
+            .setOnCancelListener{socket?.emit("call:reject",JSONObject().put("callId",callId))}
+            .show()
+    }
+    private fun launchCallActivity(callId:String,mediaType:String,isCaller:Boolean,peerName:String) {
+        val intent=Intent(this,CallActivity::class.java).apply{
+            putExtra("server_url",baseUrl);putExtra("token",token)
+            putExtra("conversation_id",currentConversation);putExtra("call_id",callId)
+            putExtra("media_type",mediaType);putExtra("is_caller",isCaller)
+            putExtra("peer_name",peerName)
+        }
+        startActivity(intent)
     }
     private fun sendMessage() {
         val text=composer.text.toString().trim()
