@@ -5,6 +5,12 @@ import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.Intent
 import android.media.MediaPlayer
+import android.media.MediaRecorder
+import android.os.Build
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import java.security.MessageDigest
+import java.util.concurrent.Executor
 import android.content.Context
 import android.graphics.Color
 import android.graphics.BitmapFactory
@@ -51,6 +57,9 @@ class MainActivity : Activity() {
     private var socket:Socket?=null
     private var callSocket:Socket?=null
     private var audioPlayer:MediaPlayer?=null
+    private var voiceRecorder:MediaRecorder?=null
+    private var voiceFile:File?=null
+    private var unlockPromptShown=false
     private lateinit var root:LinearLayout
     private lateinit var content:LinearLayout
     private lateinit var header:TextView
@@ -68,7 +77,7 @@ class MainActivity : Activity() {
         }
         accent=p.getInt("accent_color",Color.rgb(154,111,255))
         token=p.getString("token","")?:""
-        if(token.isNotBlank()) loadMe() else showAuth()
+        if(token.isNotBlank() && p.getBoolean("app_lock_enabled",false)) { showAppUnlock() } else if(token.isNotBlank()) loadMe() else showAuth()
     }
 
     private fun frame(title:String,subtitle:String="") {
@@ -303,9 +312,10 @@ class MainActivity : Activity() {
         header.text="Cargando historial…"
         composer=field("Escribe un mensaje")
         val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        row.addView(action("＋"){uploadMode="chat";chooseFile()},LinearLayout.LayoutParams(54,52))
+        row.addView(action("＋"){uploadMode="chat";chooseFile()},LinearLayout.LayoutParams(48,52))
         row.addView(composer,LinearLayout.LayoutParams(0,52,1f))
-        row.addView(action("Enviar"){sendMessage()},LinearLayout.LayoutParams(85,52))
+        row.addView(action("🎙"){toggleVoiceRecording()},LinearLayout.LayoutParams(58,52))
+        row.addView(action("Enviar"){sendMessage()},LinearLayout.LayoutParams(76,52))
         root.addView(row)
         if(conversationType=="direct"&&currentPeerId.isNotBlank()){
             val callRow=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
@@ -437,6 +447,113 @@ class MainActivity : Activity() {
         }
         startActivity(intent)
     }
+
+    private fun pinHash(pin:String):String = MessageDigest.getInstance("SHA-256").digest(pin.toByteArray()).joinToString("") { "%02x".format(it) }
+
+    private fun configureAppLock() {
+        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+        val pin=field("Crear PIN de 4 a 8 dígitos")
+        pin.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        AlertDialog.Builder(this).setTitle("Bloqueo de CHAT PRO").setMessage("Configura un PIN de respaldo. También podrás usar la huella si tu teléfono la tiene registrada.")
+            .setView(pin).setNegativeButton("Cancelar",null).setNeutralButton("Desactivar bloqueo"){_,_->prefs.edit().remove("app_pin_hash").putBoolean("app_lock_enabled",false).apply();toast("Bloqueo desactivado")}
+            .setPositiveButton("Guardar PIN"){_,_->
+                val value=pin.text.toString()
+                if(value.length !in 4..8 || !value.all{it.isDigit()}) { toast("El PIN debe tener de 4 a 8 dígitos"); return@setPositiveButton }
+                prefs.edit().putString("app_pin_hash",pinHash(value)).putBoolean("app_lock_enabled",true).apply()
+                toast("Bloqueo configurado"); showHome("Perfil")
+            }.show()
+    }
+
+    private fun showAppUnlock() {
+        if(unlockPromptShown)return
+        unlockPromptShown=true
+        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+        val executor=ContextCompat.getMainExecutor(this)
+        val prompt=BiometricPrompt(this,executor,object:BiometricPrompt.AuthenticationCallback(){
+            override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult) { unlockPromptShown=false; loadMe() }
+            override fun onAuthenticationError(errorCode:Int,errString:CharSequence) {
+                if(errorCode==BiometricPrompt.ERROR_USER_CANCELED || errorCode==BiometricPrompt.ERROR_NEGATIVE_BUTTON || errorCode==BiometricPrompt.ERROR_CANCELED) showPinUnlock()
+            }
+            override fun onAuthenticationFailed() { toast("Huella no reconocida") }
+        })
+        val info=BiometricPrompt.PromptInfo.Builder().setTitle("Desbloquear CHAT PRO")
+            .setSubtitle("Usa tu huella o el PIN de respaldo").setNegativeButtonText("Usar PIN").build()
+        try { prompt.authenticate(info) } catch(_:Exception) { showPinUnlock() }
+    }
+
+    private fun showPinUnlock() {
+        val pin=field("PIN de acceso")
+        pin.inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        AlertDialog.Builder(this).setTitle("Desbloquear CHAT PRO").setView(pin).setCancelable(false)
+            .setPositiveButton("Desbloquear"){_,_->
+                val expected=getSharedPreferences("chatpro",MODE_PRIVATE).getString("app_pin_hash","")
+                if(expected==pinHash(pin.text.toString())) { unlockPromptShown=false; loadMe() }
+                else { toast("PIN incorrecto"); showPinUnlock() }
+            }.show()
+    }
+
+    private fun showParticipantActions(userId:String,userName:String) {
+        AlertDialog.Builder(this).setTitle(userName).setItems(arrayOf("Iniciar chat privado","Compartir audio","Compartir imágenes")){_,which->
+            createConversation(userId,userName)
+            if(which==1 || which==2) {
+                uploadMode="chat"
+                val picker=Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE); type=if(which==1)"audio/*" else "image/*"
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                try { startActivityForResult(picker,42) } catch(_:Exception) { toast("No se pudo abrir Archivos") }
+            }
+        }.show()
+    }
+
+    private fun toggleVoiceRecording() {
+        if(voiceRecorder!=null) { stopVoiceRecording(); return }
+        if(androidx.core.content.ContextCompat.checkSelfPermission(this,android.Manifest.permission.RECORD_AUDIO)!=android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO),912); return
+        }
+        try {
+            val out=File(cacheDir,"voz_chatpro_${System.currentTimeMillis()}.m4a")
+            val recorder=if(Build.VERSION.SDK_INT>=31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
+            recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            recorder.setAudioEncodingBitRate(96000);recorder.setAudioSamplingRate(44100)
+            recorder.setOutputFile(out.absolutePath);recorder.prepare();recorder.start()
+            voiceRecorder=recorder;voiceFile=out;toast("Grabando… pulsa 🎙 otra vez para enviar")
+        } catch(e:Exception) { voiceRecorder?.release();voiceRecorder=null;toast("No se pudo iniciar la grabación: ${e.message}") }
+    }
+
+    private fun stopVoiceRecording() {
+        val recorder=voiceRecorder ?: return
+        val file=voiceFile
+        try { recorder.stop() } catch(_:Exception) { toast("La grabación fue demasiado corta") }
+        recorder.release();voiceRecorder=null;voiceFile=null
+        if(file==null || !file.exists() || file.length()<500) { file?.delete();return }
+        uploadLocalVoice(file)
+    }
+
+    private fun uploadLocalVoice(file:File) {
+        header.text="Enviando mensaje de voz…"
+        Thread {
+            try {
+                val body=MultipartBody.Builder().setType(MultipartBody.FORM)
+                    .addFormDataPart("file",file.name,file.asRequestBody("audio/mp4".toMediaTypeOrNull())).build()
+                val req=Request.Builder().url("$baseUrl/api/uploads").header("Authorization","Bearer $token").post(body).build()
+                http.newCall(req).execute().use { res ->
+                    val data=JSONObject(res.body?.string()?: "{}")
+                    if(!res.isSuccessful) throw Exception(data.optString("error","No se pudo enviar el audio"))
+                    val media=JSONObject().put("name",data.optString("name",file.name)).put("mimeType",data.optString("mimeType","audio/mp4")).put("size",data.optLong("size")).put("downloadPath",data.optString("downloadPath"))
+                    runOnUiThread {
+                        val s=socket
+                        if(s!=null && s.connected()) { s.emit("conversation:send",JSONObject().put("text","").put("media",media));header.text="Mensaje de voz enviado" }
+                        else header.text="Audio cargado, pero el chat no está conectado"
+                    }
+                }
+            } catch(e:Exception) { runOnUiThread { header.text=e.message?: "Error al enviar el audio" } }
+            finally { file.delete() }
+        }.start()
+    }
+
     private fun sendMessage() {
         val text=composer.text.toString().trim()
         if(text.isBlank())return
@@ -455,6 +572,10 @@ class MainActivity : Activity() {
         val mine=user?.optString("id")==me.optString("id")
         val receipt=if(mine){when{obj.optString("readAt").isNotBlank()->"  ✓✓";obj.optString("deliveredAt").isNotBlank()->"  ✓✓";else->"  ✓"}}else ""
         if(text.isNotBlank())content.addView(note("$who: $text$receipt"))
+        if(!mine && user!=null && user.optString("id").isNotBlank()) {
+            val senderId=user.optString("id"); val senderName=user.optString("name","Usuario")
+            content.addView(action("⋮  Acciones de $senderName") { showParticipantActions(senderId,senderName) })
+        }
         val media=obj.optJSONObject("media")
         if(media!=null){
             val mediaName=media.optString("name","Archivo")
@@ -631,6 +752,7 @@ class MainActivity : Activity() {
         content.addView(action("Vincular correo electrónico a esta cuenta"){showLinkEmailDialog()})
         content.addView(action("Cambiar contraseña"){showChangePasswordDialog()})
         content.addView(action("Personalizar apariencia"){showAppearance()})
+        content.addView(action("🔐 Seguridad: huella o PIN"){configureAppLock()})
         content.addView(action("Cambiar servidor"){configureServer()})
     }
     private fun showLinkEmailDialog() {
