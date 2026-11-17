@@ -56,5 +56,6 @@ dependencies {
     implementation("com.github.bumptech.glide:glide:4.16.0")
     implementation("io.github.webrtc-sdk:android:150.7871.04")
     implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("androidx.core:core-ktx:1.15.0")
 }
