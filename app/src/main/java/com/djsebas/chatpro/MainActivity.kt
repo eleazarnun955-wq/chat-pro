@@ -5,6 +5,13 @@ import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.Intent
 import android.media.MediaPlayer
+import android.media.MediaRecorder
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.Manifest
 import android.content.Context
 import android.graphics.Color
 import android.graphics.BitmapFactory
@@ -51,6 +58,10 @@ class MainActivity : Activity() {
     private var socket:Socket?=null
     private var callSocket:Socket?=null
     private var audioPlayer:MediaPlayer?=null
+    private var voiceRecorder:MediaRecorder?=null
+    private var voiceFile:File?=null
+    private var isRecordingVoice=false
+    private var isActivityVisible=false
     private lateinit var root:LinearLayout
     private lateinit var content:LinearLayout
     private lateinit var header:TextView
@@ -68,6 +79,8 @@ class MainActivity : Activity() {
         }
         accent=p.getInt("accent_color",Color.rgb(154,111,255))
         token=p.getString("token","")?:""
+        createChatNotificationChannel()
+        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),901)
         if(token.isNotBlank()) loadMe() else showAuth()
     }
 
@@ -303,6 +316,7 @@ class MainActivity : Activity() {
         header.text="Cargando historial…"
         composer=field("Escribe un mensaje")
         val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+        row.addView(action("🎙"){toggleVoiceRecording()},LinearLayout.LayoutParams(58,52))
         row.addView(action("＋"){uploadMode="chat";chooseFile()},LinearLayout.LayoutParams(54,52))
         row.addView(composer,LinearLayout.LayoutParams(0,52,1f))
         row.addView(action("Enviar"){sendMessage()},LinearLayout.LayoutParams(85,52))
@@ -378,6 +392,7 @@ class MainActivity : Activity() {
             }
             socket?.on("conversation:message"){args->
                 val obj=args.firstOrNull() as? JSONObject?:return@on
+                if(!isActivityVisible || obj.optString("conversationId")!=currentConversation) showChatNotification(obj)
                 runOnUiThread{renderConversationMessage(obj)}
             }
             socket?.on("message:reaction"){runOnUiThread{refreshConversationMessages()}}
@@ -454,7 +469,12 @@ class MainActivity : Activity() {
         val text=obj.optString("text")
         val mine=user?.optString("id")==me.optString("id")
         val receipt=if(mine){when{obj.optString("readAt").isNotBlank()->"  ✓✓";obj.optString("deliveredAt").isNotBlank()->"  ✓✓";else->"  ✓"}}else ""
-        if(text.isNotBlank())content.addView(note("$who: $text$receipt"))
+        if(user!=null){
+            val senderLabel=note("$who · tocar para ver opciones")
+            senderLabel.setOnClickListener{showRoomUserActions(user.optString("id"),who)}
+            content.addView(senderLabel)
+        }
+        if(text.isNotBlank())content.addView(note(text+receipt))
         val media=obj.optJSONObject("media")
         if(media!=null){
             val mediaName=media.optString("name","Archivo")
@@ -630,6 +650,8 @@ class MainActivity : Activity() {
         content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
         content.addView(action("Vincular correo electrónico a esta cuenta"){showLinkEmailDialog()})
         content.addView(action("Cambiar contraseña"){showChangePasswordDialog()})
+        content.addView(action("🔐 Configurar bloqueo PIN"){showPinSetup()})
+        if(getSharedPreferences("chatpro",MODE_PRIVATE).getString("pin_hash",null)!=null) content.addView(action("Desactivar bloqueo PIN"){confirmDisableAppLock()})
         content.addView(action("Personalizar apariencia"){showAppearance()})
         content.addView(action("Cambiar servidor"){configureServer()})
     }
@@ -833,6 +855,8 @@ class MainActivity : Activity() {
         socket?.disconnect();socket?.off()
         callSocket?.disconnect();callSocket?.off()
         audioPlayer?.release();audioPlayer=null
+        voiceRecorder?.release();voiceRecorder=null
+        voiceFile?.delete();voiceFile=null
         super.onDestroy()
     }
 }
