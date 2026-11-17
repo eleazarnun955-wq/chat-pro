@@ -377,6 +377,10 @@ class MainActivity : Activity() {
             if(callSocket?.connected()==true)return
             callSocket?.disconnect();callSocket?.off()
             callSocket=IO.socket(baseUrl,IO.Options.builder().setAuth(mapOf("token" to token)).setReconnection(true).setTimeout(30000).build())
+            callSocket?.on("notification:new"){args->
+                val obj=args.firstOrNull() as? JSONObject?:return@on
+                if(!isActivityVisible || obj.optString("conversationId")!=currentConversation) showChatNotification(obj)
+            }
             callSocket?.on("call:incoming"){args->
                 val obj=args.firstOrNull() as? JSONObject?:return@on
                 runOnUiThread{showIncomingCall(obj)}
