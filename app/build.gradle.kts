@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -19,22 +20,16 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystorePath = System.getenv("CHAT_PRO_KEYSTORE_PATH")
-                ?: "chat-pro-release.jks"
+            val keystorePath = System.getenv("CHAT_PRO_KEYSTORE_PATH") ?: "chat-pro-release.jks"
             storeFile = file(keystorePath)
-            storePassword = System.getenv("CHAT_PRO_STORE_PASSWORD")
-                ?: providers.gradleProperty("CHAT_PRO_STORE_PASSWORD").orNull
-            keyAlias = System.getenv("CHAT_PRO_KEY_ALIAS")
-                ?: providers.gradleProperty("CHAT_PRO_KEY_ALIAS").orNull
-            keyPassword = System.getenv("CHAT_PRO_KEY_PASSWORD")
-                ?: providers.gradleProperty("CHAT_PRO_KEY_PASSWORD").orNull
+            storePassword = System.getenv("CHAT_PRO_STORE_PASSWORD") ?: providers.gradleProperty("CHAT_PRO_STORE_PASSWORD").orNull
+            keyAlias = System.getenv("CHAT_PRO_KEY_ALIAS") ?: providers.gradleProperty("CHAT_PRO_KEY_ALIAS").orNull
+            keyPassword = System.getenv("CHAT_PRO_KEY_PASSWORD") ?: providers.gradleProperty("CHAT_PRO_KEY_PASSWORD").orNull
         }
     }
 
     buildTypes {
-        debug {
-            // Debug builds are not distributed.
-        }
+        debug { }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
@@ -55,4 +50,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.github.bumptech.glide:glide:4.16.0")
     implementation("io.github.webrtc-sdk:android:150.7871.04")
+
+    implementation(platform("com.google.firebase:firebase-bom:34.5.0"))
+    implementation("com.google.firebase:firebase-messaging")
+    implementation("androidx.biometric:biometric:1.1.0")
 }
