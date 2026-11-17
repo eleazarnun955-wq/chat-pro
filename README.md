@@ -2,9 +2,9 @@
 **Mensajería multiusuario para Android**
 
 ## Android
-- Versión: `1.8.0` (versionCode `23`).
-- Paquete independiente: `com.djsebas.chatpro.v180`; se instala junto a CHAT PRO 1.7.2 y versiones anteriores, sin reemplazarlas.
-- Esta versión agrega llamadas de voz y videollamadas entre dos personas en chats privados individuales.
+- Versión: `1.8.1` (versionCode `24`).
+- Paquete independiente: `com.djsebas.chatpro.v181`; se instala junto a CHAT PRO 1.7.2 y versiones anteriores, sin reemplazarlas.
+- Esta versión conserva llamadas de voz y videollamadas, e incorpora mensajes de voz, bloqueo de app con huella/PIN y acciones sobre participantes. Las notificaciones push requieren configurar credenciales Firebase en el servidor.
 - APK: GitHub Actions → **Build CHAT PRO APK** → artifact **CHAT-PRO-debug**.
 
 ## Funciones conectadas
