@@ -10,11 +10,11 @@ android {
     defaultConfig {
         // Unique package keeps this build separate from earlier CHAT PRO installs.
         // Keep the previous app installed; users can sign in to the same server account.
-        applicationId = "com.djsebas.chatpro.v180"
+        applicationId = "com.djsebas.chatpro.v181"
         minSdk = 23
         targetSdk = 35
-        versionCode = 23
-        versionName = "1.8.0"
+        versionCode = 24
+        versionName = "1.8.1"
     }
 
     signingConfigs {
@@ -55,4 +55,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.github.bumptech.glide:glide:4.16.0")
     implementation("io.github.webrtc-sdk:android:150.7871.04")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.core:core-ktx:1.15.0")
 }
