@@ -2,48 +2,38 @@
 **Mensajería multiusuario para Android**
 
 ## Android
-- Paquete Android: `com.djsebas.chatpro.v172` (instalación independiente; no reemplaza 1.7.0).
-- Versión: `1.7.2` (versionCode `22`).
-- Puede instalarse junto a las versiones anteriores de CHAT PRO.
+- Versión: `1.8.0` (versionCode `23`).
+- Paquete independiente: `com.djsebas.chatpro.v180`; se instala junto a CHAT PRO 1.7.2 y versiones anteriores, sin reemplazarlas.
+- Esta versión agrega llamadas de voz y videollamadas entre dos personas en chats privados individuales.
 - APK: GitHub Actions → **Build CHAT PRO APK** → artifact **CHAT-PRO-debug**.
 
 ## Funciones conectadas
-- Registro e inicio de sesión exclusivamente con correo electrónico y contraseña (sin teléfono ni SMS).
-- Vinculación segura de correo a cuentas anteriores mediante confirmación de contraseña.
-- Sesiones con token y perfiles.
-- Búsqueda de usuarios y conversaciones privadas.
-- Grupos privados con autorización por membresía.
-- Salas públicas y privadas: creación, exploración y unión/invitación de integrantes.
-- Mensajes en tiempo real e historial en Supabase.
-- Conteo de no leídos, confirmaciones de entrega y lectura.
-- Reacciones por mensaje (👍 ❤️ 😂 🔥 👏 😮 😢 🎉).
-- Presencia de conexión y última actividad.
-- Estados de 24 horas y visualizaciones.
-- Fotos, videos, audio y documentos en Supabase Storage privado.
-- Vista previa de imágenes dentro del chat y apertura ampliada.
-- Reproducción integrada de videos, música y audios.
-- Descarga autenticada de todos los archivos a `Descargas/CHAT PRO`.
-- Reproducción en línea con soporte de solicitudes HTTP Range para audio y video.
-- Acceso a archivos de mensajes limitado a integrantes de la conversación; los estados vigentes conservan su visibilidad para usuarios registrados.
-- Eliminación de estados propios.
-- Eliminación real de mensajes para mí y para todos; borrado global con marcador interno compatible con la regla de contenido de PostgreSQL.
-- Opción Limpiar historial con confirmación: oculta los mensajes solo en la cuenta que la ejecuta, sin borrar el historial de los demás participantes.
-- Cambio de contraseña y cierre de otras sesiones.
+- Registro e inicio de sesión exclusivamente con correo electrónico y contraseña.
+- Cuentas, perfiles, sesiones y búsqueda de usuarios.
+- Conversaciones privadas uno a uno, grupos privados y salas públicas/privadas.
+- Mensajes en tiempo real, historial, no leídos y confirmaciones de entrega y lectura.
+- Reacciones, presencia y estados de 24 horas.
+- Fotos, videos, audio y documentos mediante almacenamiento privado.
+- Vista previa y reproducción integrada de archivos multimedia.
 - Descargas autenticadas a `Descargas/CHAT PRO`.
+- Eliminación de mensajes para mí o para todos y limpieza individual del historial.
+- Llamadas de voz y videollamadas WebRTC en chats privados individuales.
+- Controles durante la llamada: aceptar/rechazar, silenciar micrófono, altavoz, cámara, cambiar cámara y colgar.
+
+## Llamadas: alcance y red
+- La señalización usa Socket.IO autenticado y valida que ambos usuarios pertenezcan al mismo chat privado individual.
+- Audio y video se transmiten con WebRTC directamente entre dispositivos cuando la red lo permite.
+- Se configura STUN público para ayudar a establecer la conexión directa. No se incluye un servidor TURN de retransmisión: ciertas redes, NAT o firewalls pueden impedir conectar; en ese caso habrá que añadir un TURN (puede tener límites gratuitos y cobrar por uso).
+- La llamada entrante requiere que CHAT PRO esté abierto y conectado a internet en el dispositivo receptor. Las notificaciones de llamada en segundo plano requieren configurar Firebase Cloud Messaging.
+- No se cobra por minuto dentro de CHAT PRO; cada persona consume sus propios datos móviles o Wi-Fi. El costo de TURN, si se necesita, depende del tráfico.
 
 ## Backend
 - Render: `https://chat-pro-server-qhjw.onrender.com`
 - Supabase: PostgreSQL y Storage.
-- La clave privada de Supabase debe permanecer únicamente en las variables secretas del servidor.
-- RLS está habilitado en las tablas internas; el backend usa una credencial de servidor, nunca una clave secreta en Android.
+- Las claves privadas de Supabase permanecen únicamente en el servidor.
 
-## Pendientes de validación
-- Prueba integral con dos o más teléfonos y cuentas: subida, vista previa, reproducción, descarga y permisos de archivos en salas públicas y privadas.
-- Notificaciones push del sistema (requieren configurar Firebase Cloud Messaging y credenciales).
-- Asistente de IA generativa (requiere elegir y configurar un proveedor/API y su clave).
-- Llamadas de voz/video y cifrado de extremo a extremo.
-- Prueba de recuperación de cuenta y moderación avanzada.
-- Revisar reglas de acceso de salas y archivos antes de abrir el registro al público.
-- Prueba integral de creación de sala privada, invitaciones, reproducción de audio y cambio de contraseña en dos o más teléfonos.
-
-No considerar estas funciones verificadas en teléfonos reales hasta completar pruebas multiusuario.
+## Validación pendiente antes de distribuir
+- Compilación Android y pruebas con dos teléfonos/cuentas reales.
+- Probar llamadas de voz/video en Wi-Fi y datos móviles, permisos, rechazo, no respuesta, desconexión y reconexión.
+- Validar conexiones en redes restrictivas y decidir si hace falta un servidor TURN.
+- Notificaciones de llamadas cuando la app está en segundo plano (FCM).

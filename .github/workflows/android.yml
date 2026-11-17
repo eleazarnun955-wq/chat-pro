@@ -1,7 +1,7 @@
 name: Build CHAT PRO APK
 on:
   push:
-    branches: [ main, feature/email-only-registration ]
+    branches: [ main, feature/email-only-registration, feature/calls-1.8.0 ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
