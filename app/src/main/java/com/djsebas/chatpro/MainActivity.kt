@@ -49,6 +49,7 @@ class MainActivity : Activity() {
     private var pendingStatusCaption=""
     private var pendingWallpaperKey="home_wallpaper"
     private var socket:Socket?=null
+    private var callSocket:Socket?=null
     private var audioPlayer:MediaPlayer?=null
     private lateinit var root:LinearLayout
     private lateinit var content:LinearLayout
@@ -135,6 +136,7 @@ class MainActivity : Activity() {
     }
     private fun showHome(tab:String) {
         socket?.disconnect()
+        connectCallSocket()
         // Diseño principal: navegación vertical a la izquierda y contenido a la derecha.
         root=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
@@ -351,6 +353,21 @@ class MainActivity : Activity() {
                 },{toast(it)})
             }.show()
     }
+    private fun connectCallSocket() {
+        try {
+            if(callSocket?.connected()==true)return
+            callSocket?.disconnect();callSocket?.off()
+            callSocket=IO.socket(baseUrl,IO.Options.builder().setAuth(mapOf("token" to token)).setReconnection(true).setTimeout(30000).build())
+            callSocket?.on("call:incoming"){args->
+                val obj=args.firstOrNull() as? JSONObject?:return@on
+                runOnUiThread{showIncomingCall(obj)}
+            }
+            callSocket?.on(Socket.EVENT_CONNECT_ERROR){args->
+                android.util.Log.w("CHATPRO-CALL","No se pudo conectar el canal de llamadas: "+(args.firstOrNull()?.toString()?: ""))
+            }
+            callSocket?.connect()
+        }catch(error:Exception){android.util.Log.e("CHATPRO-CALL","No se pudo preparar el canal de llamadas",error)}
+    }
     private fun connectConversation() {
         try {
             socket=IO.socket(baseUrl,IO.Options.builder().setAuth(mapOf("token" to token)).setReconnection(true).setTimeout(30000).build())
@@ -370,10 +387,6 @@ class MainActivity : Activity() {
             socket?.on("conversation:delivered"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("presence:joined"){runOnUiThread{header.text="En línea · $currentTitle"}}
             socket?.on("presence:left"){runOnUiThread{header.text="Miembro desconectado · $currentTitle"}}
-            socket?.on("call:incoming"){args->
-                val obj=args.firstOrNull() as? JSONObject?:return@on
-                runOnUiThread{showIncomingCall(obj)}
-            }
             socket?.on("call:started"){args->
                 val obj=args.firstOrNull() as? JSONObject?:return@on
                 runOnUiThread{launchCallActivity(obj.optString("callId"),obj.optString("mediaType"),true,currentTitle,obj.optString("conversationId",currentConversation))}
@@ -410,9 +423,9 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle(if(mediaType=="video")"Videollamada entrante" else "Llamada entrante")
             .setMessage(name+" te está llamando")
-            .setNegativeButton("Rechazar"){_,_->socket?.emit("call:reject",JSONObject().put("callId",callId))}
+            .setNegativeButton("Rechazar"){_,_->callSocket?.emit("call:reject",JSONObject().put("callId",callId))}
             .setPositiveButton("Aceptar"){_,_->launchCallActivity(callId,mediaType,false,name,call.optString("conversationId",currentConversation))}
-            .setOnCancelListener{socket?.emit("call:reject",JSONObject().put("callId",callId))}
+            .setOnCancelListener{callSocket?.emit("call:reject",JSONObject().put("callId",callId))}
             .show()
     }
     private fun launchCallActivity(callId:String,mediaType:String,isCaller:Boolean,peerName:String,conversationId:String=currentConversation) {
@@ -816,5 +829,10 @@ class MainActivity : Activity() {
         val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(2,5,2,7);layoutParams=lp
     }
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
-    override fun onDestroy(){socket?.disconnect();socket?.off();audioPlayer?.release();audioPlayer=null;super.onDestroy()}
+    override fun onDestroy(){
+        socket?.disconnect();socket?.off()
+        callSocket?.disconnect();callSocket?.off()
+        audioPlayer?.release();audioPlayer=null
+        super.onDestroy()
+    }
 }
