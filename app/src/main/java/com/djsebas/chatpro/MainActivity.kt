@@ -222,7 +222,7 @@ class MainActivity : FragmentActivity() {
             setPadding(17,11,17,5)
         }
         root.addView(header)
-        val mainScroll=ScrollView(this).apply { fillViewport=true }
+        val mainScroll=ScrollView(this).apply { isFillViewport=true }
         content=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
             setPadding(12,5,12,18)
