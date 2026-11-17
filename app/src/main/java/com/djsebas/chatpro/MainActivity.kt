@@ -90,7 +90,7 @@ class MainActivity : Activity() {
         email.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
         val password=field("Contraseña (mínimo 8 caracteres)")
         password.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-        content.addView(name);content.addView(email);content.addView(password)
+        content.addView(name);content.addView(email);content.addView(passwordField(password))
         val actions=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
         actions.addView(action("Crear cuenta"){authRequest("/api/register",JSONObject().put("name",name.text.toString()).put("email",email.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
         actions.addView(action("Iniciar sesión"){authRequest("/api/login",JSONObject().put("email",email.text.toString()).put("password",password.text.toString()))},LinearLayout.LayoutParams(0,54,1f))
@@ -454,36 +454,48 @@ class MainActivity : Activity() {
         val text=obj.optString("text")
         val mine=user?.optString("id")==me.optString("id")
         val receipt=if(mine){when{obj.optString("readAt").isNotBlank()->"  ✓✓";obj.optString("deliveredAt").isNotBlank()->"  ✓✓";else->"  ✓"}}else ""
-        if(text.isNotBlank())content.addView(note("$who: $text$receipt"))
+        val card=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(12,9,12,9)
+            background=GradientDrawable().apply {
+                setColor(Color.argb(158,if(mine)35 else 17,if(mine)29 else 24,if(mine)66 else 43))
+                cornerRadius=18f
+                setStroke(2,if(mine)accent else Color.argb(190,210,220,240))
+            }
+            elevation=2f
+        }
+        content.addView(card,LinearLayout.LayoutParams(-1,-2).apply{setMargins(2,5,2,7)})
+        if(text.isNotBlank())card.addView(TextView(this).apply {
+            this.text="$who: $text$receipt"
+            textSize=15f
+            setTextColor(Color.WHITE)
+            setShadowLayer(2f,0f,1f,Color.BLACK)
+        })
         val media=obj.optJSONObject("media")
         if(media!=null){
             val mediaName=media.optString("name","Archivo")
             val mime=media.optString("mimeType").lowercase()
             when {
                 mime.startsWith("image/") -> {
-                    val preview=ImageView(this).apply {
-                        adjustViewBounds=true
-                        scaleType=ImageView.ScaleType.FIT_CENTER
-                        maxHeight=(220*resources.displayMetrics.density).toInt()
-                        setBackgroundColor(Color.argb(90,255,255,255))
-                    }
-                    content.addView(preview,LinearLayout.LayoutParams(-1,(220*resources.displayMetrics.density).toInt()))
+                    val preview=ImageView(this).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER;maxHeight=(220*resources.displayMetrics.density).toInt();setBackgroundColor(Color.argb(55,255,255,255))}
+                    card.addView(preview,LinearLayout.LayoutParams(-1,(220*resources.displayMetrics.density).toInt()))
                     loadImagePreview(media,preview)
-                    content.addView(action("Ver imagen: $mediaName"){showImage(media)})
+                    card.addView(action("Ver imagen: $mediaName"){showImage(media)})
                 }
-                mime.startsWith("video/") -> content.addView(action("▶  Reproducir video: $mediaName"){playVideo(media)})
-                mime.startsWith("audio/") -> content.addView(action("▶  Reproducir música o audio: $mediaName"){playAudio(media)})
-                else -> content.addView(note("📎 Archivo: $mediaName"))
+                mime.startsWith("video/") -> card.addView(action("▶  Reproducir video: $mediaName"){playVideo(media)})
+                mime.startsWith("audio/") -> card.addView(action("▶  Reproducir música o audio: $mediaName"){playAudio(media)})
+                else -> card.addView(note("📎 Archivo: $mediaName"))
             }
-            content.addView(action("⬇  Descargar: $mediaName"){downloadMedia(media)})
+            card.addView(action("⬇  Descargar: $mediaName"){downloadMedia(media)})
         }
         val reactions=obj.optJSONArray("reactions")?:JSONArray()
         val summary=(0 until reactions.length()).mapNotNull{reactions.optJSONObject(it)?.optString("reaction")}.groupingBy{it}.eachCount().entries.joinToString("  "){"${it.key} ${it.value}"}
-        if(summary.isNotBlank())content.addView(note("Reacciones: $summary"))
+        if(summary.isNotBlank())card.addView(TextView(this).apply{text="Reacciones: $summary";textSize=13f;setTextColor(Color.WHITE)})
         val messageId=obj.optString("id")
-        if(messageId.isNotBlank()) {
-            content.addView(action("Reaccionar  👍  ❤️  😂  🔥"){showMessageReactions(messageId)})
-            content.addView(action("⋮  Opciones del mensaje"){showMessageDeleteOptions(messageId,mine)})
+        if(messageId.isNotBlank()){
+            card.addView(action("Reaccionar  👍  ❤️  😂  🔥"){showMessageReactions(messageId)})
+            card.setOnLongClickListener{showMessageDeleteOptions(messageId,mine);true}
+            card.contentDescription="Mantén presionado para ver opciones de este mensaje"
         }
     }
     private fun showMessageDeleteOptions(messageId:String,mine:Boolean) {
@@ -638,7 +650,7 @@ class MainActivity : Activity() {
         email.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
         val password=field("Contraseña actual")
         password.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(email);addView(password)}
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(email);addView(passwordField(password))}
         AlertDialog.Builder(this).setTitle("Vincular correo a tu cuenta").setMessage("Confirma tu contraseña actual para asociar tu correo.")
             .setView(box).setNegativeButton("Cancelar",null).setPositiveButton("Vincular"){_,_->
                 api("POST","/api/me/email",JSONObject().put("email",email.text.toString()).put("currentPassword",password.text.toString()),{toast("Correo vinculado. Ya puedes entrar con tu correo.");showHome("Perfil")},{toast(it)})
@@ -649,7 +661,7 @@ class MainActivity : Activity() {
         val next=field("Nueva contraseña (mínimo 8 caracteres)")
         val confirm=field("Confirmar nueva contraseña")
         listOf(current,next,confirm).forEach{it.inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD}
-        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(current);addView(next);addView(confirm)}
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(16,4,16,4);addView(passwordField(current));addView(passwordField(next));addView(passwordField(confirm))}
         AlertDialog.Builder(this).setTitle("Cambiar contraseña").setView(box)
             .setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->
                 if(next.text.toString().length<8){toast("La nueva contraseña debe tener al menos 8 caracteres");return@setPositiveButton}
@@ -805,6 +817,24 @@ class MainActivity : Activity() {
                 ))
             } else root.setBackgroundColor(bg)
         }
+    }
+    private fun passwordField(edit:EditText):LinearLayout {
+        val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+        row.addView(edit,LinearLayout.LayoutParams(0,-2,1f))
+        val eye=TextView(this).apply{
+            text="👁";textSize=21f;gravity=Gravity.CENTER;setTextColor(Color.WHITE);setPadding(12,12,12,12)
+            contentDescription="Mostrar contraseña"
+            setOnClickListener{
+                val currentlyHidden=edit.transformationMethod is android.text.method.PasswordTransformationMethod
+                val cursor=edit.selectionStart.coerceAtLeast(0)
+                edit.transformationMethod=if(currentlyHidden) android.text.method.HideReturnsTransformationMethod.getInstance() else android.text.method.PasswordTransformationMethod.getInstance()
+                text=if(currentlyHidden)"🙈" else "👁"
+                contentDescription=if(currentlyHidden)"Ocultar contraseña" else "Mostrar contraseña"
+                edit.setSelection(cursor.coerceAtMost(edit.text.length))
+            }
+        }
+        row.addView(eye,LinearLayout.LayoutParams(52,56))
+        return row
     }
     private fun field(hint:String)=EditText(this).apply{
         this.hint=hint;setHintTextColor(Color.LTGRAY);setTextColor(Color.WHITE)
