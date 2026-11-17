@@ -14,8 +14,6 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import io.socket.client.IO
 import io.socket.client.Socket
 import org.json.JSONObject
@@ -83,10 +81,10 @@ class CallActivity : Activity() {
         val needed = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (mediaType == "video") needed.add(Manifest.permission.CAMERA)
         val missing = needed.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 811)
+            requestPermissions(missing.toTypedArray(), 811)
         } else {
             initializeCall()
         }
@@ -212,7 +210,7 @@ class CallActivity : Activity() {
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
             override fun onAddStream(stream: org.webrtc.MediaStream?) {
                 val track = stream?.videoTracks?.firstOrNull()
-                if (track != null && remoteRenderer != null) runOnUiThread { track.addSink(remoteRenderer) }
+                if (track != null && remoteRenderer != null) runOnUiThread { remoteRenderer?.let { track.addSink(it) } }
             }
             override fun onRemoveStream(stream: org.webrtc.MediaStream?) {}
             override fun onDataChannel(channel: org.webrtc.DataChannel?) {}
@@ -229,7 +227,7 @@ class CallActivity : Activity() {
 
         audioSource = factory?.createAudioSource(MediaConstraints())
         audioTrack = factory?.createAudioTrack("chatpro-audio", audioSource)
-        peer?.addTrack(audioTrack, listOf("chatpro-stream"))
+        peer?.addTrack(audioTrack!!, listOf("chatpro-stream"))
 
         if (mediaType == "video") createLocalVideo()
     }
@@ -243,11 +241,11 @@ class CallActivity : Activity() {
             ?: throw IllegalStateException("No se pudo abrir la cámara")
         videoSource = factory?.createVideoSource(false)
         textureHelper = SurfaceTextureHelper.create("CHATPRO-Camera", egl!!.eglBaseContext)
-        capturer?.initialize(textureHelper, this, videoSource?.capturerObserver)
+        capturer?.initialize(textureHelper!!, this, videoSource!!.capturerObserver)
         capturer?.startCapture(640, 480, 24)
         videoTrack = factory?.createVideoTrack("chatpro-video", videoSource)
-        videoTrack?.addSink(localRenderer)
-        peer?.addTrack(videoTrack, listOf("chatpro-stream"))
+        if (localRenderer != null) videoTrack?.addSink(localRenderer)
+        peer?.addTrack(videoTrack!!, listOf("chatpro-stream"))
     }
 
     private fun connectSignaling() {
