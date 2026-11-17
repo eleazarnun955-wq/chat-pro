@@ -300,6 +300,11 @@ io.on("connection",socket=>{
    socket.emit("call:started",{callId,conversationId,mediaType});
   }catch(error){console.error("call:start",error);socket.emit("call:error",{message:"No se pudo iniciar la llamada"});}
  });
+ socket.on("call:ready",payload=>{
+  const call=activeCalls.get(clean(payload?.callId,80));
+  if(!user||!call||call.callerId!==user.id||!call.accepted)return;
+  socket.emit("call:accepted",{callId:call.callId});
+ });
  socket.on("call:accept",payload=>{
   const call=activeCalls.get(clean(payload?.callId,80));
   if(!user||!call||call.calleeId!==user.id)return;
