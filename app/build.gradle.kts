@@ -11,11 +11,11 @@ android {
     defaultConfig {
         // Unique package keeps this build separate from earlier CHAT PRO installs.
         // Keep the previous app installed; users can sign in to the same server account.
-        applicationId = "com.djsebas.chatpro.v180"
+        applicationId = "com.djsebas.chatpro.v181"
         minSdk = 23
         targetSdk = 35
-        versionCode = 23
-        versionName = "1.8.0"
+        versionCode = 24
+        versionName = "1.8.1"
     }
 
     signingConfigs {
@@ -54,4 +54,5 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.5.0"))
     implementation("com.google.firebase:firebase-messaging")
     implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
 }
