@@ -376,7 +376,7 @@ class MainActivity : Activity() {
             }
             socket?.on("call:started"){args->
                 val obj=args.firstOrNull() as? JSONObject?:return@on
-                runOnUiThread{launchCallActivity(obj.optString("callId"),obj.optString("mediaType"),true,currentTitle)}
+                runOnUiThread{launchCallActivity(obj.optString("callId"),obj.optString("mediaType"),true,currentTitle,obj.optString("conversationId",currentConversation))}
             }
             socket?.on("call:error"){args->
                 val obj=args.firstOrNull() as? JSONObject?:return@on
@@ -411,14 +411,14 @@ class MainActivity : Activity() {
             .setTitle(if(mediaType=="video")"Videollamada entrante" else "Llamada entrante")
             .setMessage(name+" te está llamando")
             .setNegativeButton("Rechazar"){_,_->socket?.emit("call:reject",JSONObject().put("callId",callId))}
-            .setPositiveButton("Aceptar"){_,_->launchCallActivity(callId,mediaType,false,name)}
+            .setPositiveButton("Aceptar"){_,_->launchCallActivity(callId,mediaType,false,name,call.optString("conversationId",currentConversation))}
             .setOnCancelListener{socket?.emit("call:reject",JSONObject().put("callId",callId))}
             .show()
     }
-    private fun launchCallActivity(callId:String,mediaType:String,isCaller:Boolean,peerName:String) {
+    private fun launchCallActivity(callId:String,mediaType:String,isCaller:Boolean,peerName:String,conversationId:String=currentConversation) {
         val intent=Intent(this,CallActivity::class.java).apply{
             putExtra("server_url",baseUrl);putExtra("token",token)
-            putExtra("conversation_id",currentConversation);putExtra("call_id",callId)
+            putExtra("conversation_id",conversationId);putExtra("call_id",callId)
             putExtra("media_type",mediaType);putExtra("is_caller",isCaller)
             putExtra("peer_name",peerName)
         }
