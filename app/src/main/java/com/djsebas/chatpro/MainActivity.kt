@@ -356,10 +356,11 @@ class MainActivity : Activity() {
             if(arr.length()==0)box.addView(note("No se encontraron usuarios."))
         },{header.text=it})
     }
-    private fun createConversation(userId:String,name:String) {
+    private fun createConversation(userId:String,name:String,shareMedia:Boolean=false) {
         api("POST","/api/conversations",JSONObject().put("members",JSONArray().put(userId)),{data->
             val c=data.optJSONObject("conversation")?:return@api
             openConversation(c.optString("id"),name,userId,"direct")
+            if(shareMedia) android.os.Handler(mainLooper).postDelayed({chooseShareMedia()},900)
         },{header.text=it})
     }
     private fun openConversation(id:String,title:String,peerId:String="",conversationType:String="direct") {
@@ -550,7 +551,8 @@ class MainActivity : Activity() {
     private fun beginVoiceRecording() {
         try {
             val file=File(cacheDir,"chatpro_voice_"+System.currentTimeMillis()+".m4a")
-            val recorder=if(Build.VERSION.SDK_INT>=31)MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
+            @Suppress("DEPRECATION")
+            val recorder=if(Build.VERSION.SDK_INT>=31)MediaRecorder(this) else MediaRecorder()
             recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -599,11 +601,7 @@ class MainActivity : Activity() {
     private fun showRoomUserActions(userId:String,name:String) {
         if(userId.isBlank()||userId==me.optString("id"))return
         AlertDialog.Builder(this).setTitle(name).setItems(arrayOf("Iniciar chat privado","Compartir audio o imagen")){_,which->
-            createConversation(userId,name)
-            if(which==1) {
-                // Open the private conversation first, then choose a media file to send.
-                android.os.Handler(mainLooper).postDelayed({chooseShareMedia()},900)
-            }
+            createConversation(userId,name,which==1)
         }.show()
     }
     private fun chooseShareMedia() {
