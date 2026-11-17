@@ -298,7 +298,7 @@ class MainActivity : Activity() {
                 val names=users.text.toString().split(",").map{it.trim().removePrefix("@")}.filter{it.matches(Regex("[a-zA-Z0-9_.-]{3,24}"))}.distinct()
                 if(visibility=="private"&&names.isEmpty()){toast("Agrega al menos un usuario para invitar a la sala privada");return@setPositiveButton}
                 val body=JSONObject().put("type","room").put("visibility",visibility).put("title",title.text.toString()).put("description",description.text.toString()).put("usernames",JSONArray(names))
-                api("POST","/api/conversations",body,{data->val room=data.optJSONObject("conversation")?:return@api;openConversation(room.optString("id"),room.optString("title","Sala"))},{header.text=it})
+                api("POST","/api/conversations",body,{data->val room=data.optJSONObject("conversation")?:return@api;openConversation(room.optString("id"),room.optString("title","Sala"),"","room")},{header.text=it})
             }.show()
     }
     private fun showPublicRooms() {
@@ -313,8 +313,8 @@ class MainActivity : Activity() {
                 val members=room.optInt("members")
                 val joined=room.optBoolean("isMember")
                 content.addView(action("${if(joined)"Abrir" else "Unirse"} · $title · $members miembros"){
-                    if(joined)openConversation(id,title)
-                    else api("POST","/api/rooms/$id/join",JSONObject(),{openConversation(id,title)},{toast(it)})
+                    if(joined)openConversation(id,title,"","room")
+                    else api("POST","/api/rooms/$id/join",JSONObject(),{openConversation(id,title,"","room")},{toast(it)})
                 })
                 if(room.optString("description").isNotBlank())content.addView(note(room.optString("description")))
             }
@@ -341,7 +341,7 @@ class MainActivity : Activity() {
                 val names=users.text.toString().split(",").map{it.trim().removePrefix("@")}.filter{it.matches(Regex("[a-zA-Z0-9_.-]{3,24}"))}.distinct()
                 if(names.isEmpty()){toast("Agrega al menos otro usuario");return@setPositiveButton}
                 val body=JSONObject().put("type","group").put("title",title.text.toString()).put("usernames",JSONArray(names))
-                api("POST","/api/conversations",body,{data->val conv=data.optJSONObject("conversation")?:return@api;openConversation(conv.optString("id"),conv.optString("title","Grupo"))},{header.text=it})
+                api("POST","/api/conversations",body,{data->val conv=data.optJSONObject("conversation")?:return@api;openConversation(conv.optString("id"),conv.optString("title","Grupo"),"","group")},{header.text=it})
             }.show()
     }
     private fun searchUsers(term:String,target:LinearLayout?=null) {
