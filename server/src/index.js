@@ -353,6 +353,18 @@ io.on("connection",socket=>{
     await db.markMessageDelivered(item.id,id,user.id);item.deliveredAt=new Date().toISOString();
    }
    io.to(id).emit("conversation:message",item);
+   // Notify every other member through their authenticated user socket room.
+   const {data:roomMembers,error:memberError}=await db.supabase.from("conversation_members").select("user_id").eq("conversation_id",id);
+   if(memberError)throw memberError;
+   const preview=text||((media?.mimeType||"").startsWith("audio/")?"Te envió una nota de voz":media?"Te envió un archivo":"Nuevo mensaje");
+   for(const memberRow of roomMembers||[]) {
+    if(memberRow.user_id===user.id)continue;
+    io.to("user:"+memberRow.user_id).emit("chat:notification",{
+     conversationId:id,
+     senderName:user.name||user.username||"Nuevo mensaje",
+     preview:String(preview).slice(0,140)
+    });
+   }
   }catch(e){socket.emit("chat:error",{message:"No se pudo enviar el mensaje"})}
  });
  socket.on("room:join",({roomId}={})=>{if(process.env.ALLOW_LEGACY_ROOMS!=="false"||!roomId)return;});
