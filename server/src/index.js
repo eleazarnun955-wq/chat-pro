@@ -348,6 +348,9 @@ io.on("connection",socket=>{
    if(payload.media&&typeof payload.media==="object"){const m=payload.media,p=clean(m.downloadPath,500);if(!p.startsWith("/api/uploads/"))return;media={name:clean(m.name,180)||"Archivo",mimeType:clean(m.mimeType,100)||"application/octet-stream",size:Number(m.size)||0,downloadPath:p}}
    if(!text&&!media)return;
    const item=await db.createMessage({id:randomUUID(),conversationId:id,senderId:user.id,text,media});
+   const {data:recipientRows,error:recipientError}=await db.supabase.from("conversation_members").select("user_id").eq("conversation_id",id);
+   if(recipientError)throw recipientError;
+   for(const recipient of recipientRows||[]) if(recipient.user_id!==user.id) io.to("user:"+recipient.user_id).emit("notification:new",item);
    const activeSockets=await io.in(id).fetchSockets();
    if(activeSockets.some(s=>s.data.user?.id&&s.data.user.id!==user.id)){
     await db.markMessageDelivered(item.id,id,user.id);item.deliveredAt=new Date().toISOString();
