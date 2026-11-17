@@ -490,7 +490,7 @@ class MainActivity : Activity() {
         }
         val reactions=obj.optJSONArray("reactions")?:JSONArray()
         val summary=(0 until reactions.length()).mapNotNull{reactions.optJSONObject(it)?.optString("reaction")}.groupingBy{it}.eachCount().entries.joinToString("  "){"${it.key} ${it.value}"}
-        if(summary.isNotBlank())card.addView(TextView(this).apply{text="Reacciones: $summary";textSize=13f;setTextColor(Color.WHITE)})
+        if(summary.isNotBlank())card.addView(TextView(this).apply{this.text="Reacciones: $summary";textSize=13f;setTextColor(Color.WHITE)})
         val messageId=obj.optString("id")
         if(messageId.isNotBlank()){
             card.addView(action("Reaccionar  👍  ❤️  😂  🔥"){showMessageReactions(messageId)})
