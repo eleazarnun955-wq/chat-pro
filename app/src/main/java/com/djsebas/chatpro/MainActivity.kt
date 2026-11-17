@@ -509,15 +509,18 @@ class MainActivity : Activity() {
 
     private fun showParticipantActions(userId:String,userName:String) {
         AlertDialog.Builder(this).setTitle(userName).setItems(arrayOf("Iniciar chat privado","Compartir audio","Compartir imágenes")){_,which->
-            createConversation(userId,userName)
-            if(which==1 || which==2) {
-                uploadMode="chat"
-                val picker=Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE); type=if(which==1)"audio/*" else "image/*"
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            api("POST","/api/conversations",JSONObject().put("members",JSONArray().put(userId)),{data->
+                val c=data.optJSONObject("conversation")?:return@api
+                openConversation(c.optString("id"),userName,userId,"direct")
+                if(which==1 || which==2) {
+                    uploadMode="chat"
+                    val picker=Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE); type=if(which==1)"audio/*" else "image/*"
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    try { startActivityForResult(picker,42) } catch(_:Exception) { toast("No se pudo abrir Archivos") }
                 }
-                try { startActivityForResult(picker,42) } catch(_:Exception) { toast("No se pudo abrir Archivos") }
-            }
+            },{toast("No se pudo abrir el chat: $it")})
         }.show()
     }
 
