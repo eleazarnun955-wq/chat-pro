@@ -77,6 +77,9 @@ class MainActivity : Activity() {
         }
         accent=p.getInt("accent_color",Color.rgb(154,111,255))
         token=p.getString("token","")?:""
+        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),913)
+        }
         if(token.isNotBlank() && p.getBoolean("app_lock_enabled",false)) { showAppUnlock() } else if(token.isNotBlank()) loadMe() else showAuth()
     }
 
@@ -117,13 +120,25 @@ class MainActivity : Activity() {
                     if(!res.isSuccessful)throw Exception(data.optString("error","HTTP ${res.code}"))
                     token=data.optString("token");me=data.optJSONObject("user")?:JSONObject()
                     getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("token",token).apply()
-                    runOnUiThread{showHome("Chats")}
+                    runOnUiThread{registerPushToken();showHome("Chats")}
                 }
             } catch(e:Exception){runOnUiThread{header.text=e.message?: "No se pudo iniciar sesión"}}
         }.start()
     }
     private fun loadMe() {
-        api("GET","/api/me",null,{data->me=data.optJSONObject("user")?:JSONObject();showHome("Chats")},{showAuth()})
+        api("GET","/api/me",null,{data->me=data.optJSONObject("user")?:JSONObject();registerPushToken();showHome("Chats")},{showAuth()})
+    }
+
+    private fun registerPushToken() {
+        val fcm=getSharedPreferences("chatpro",MODE_PRIVATE).getString("fcm_token","") ?: ""
+        if(fcm.isBlank() || token.isBlank()) return
+        Thread {
+            try {
+                val body=JSONObject().put("token",fcm).put("platform","android").toString().toRequestBody("application/json".toMediaTypeOrNull())
+                val request=Request.Builder().url("$baseUrl/api/push/register").header("Authorization","Bearer $token").post(body).build()
+                http.newCall(request).execute().close()
+            } catch(_:Exception) { }
+        }.start()
     }
     private fun api(method:String,path:String,body:JSONObject?,ok:(JSONObject)->Unit,fail:(String)->Unit) {
         Thread {
