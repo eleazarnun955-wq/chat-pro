@@ -29,3 +29,6 @@ alter table public.user_blocks enable row level security;
 alter table public.user_reports enable row level security;
 create index if not exists messages_conversation_created_idx on public.messages(conversation_id, created_at desc);
 create index if not exists messages_deleted_by_idx on public.messages(deleted_by) where deleted_by is not null;
+
+-- Only the server's secret service_role may access these server-managed tables.
+grant select, insert, update, delete on table public.message_bookmarks, public.user_blocks, public.user_reports to service_role;
