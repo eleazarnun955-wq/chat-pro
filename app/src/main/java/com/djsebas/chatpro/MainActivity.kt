@@ -552,7 +552,7 @@ class MainActivity : FragmentActivity() {
             AlertDialog.Builder(this).setTitle("Bloqueo con PIN").setMessage("El bloqueo está activado.")
                 .setItems(arrayOf("Cambiar PIN","Desactivar bloqueo")){_,which->
                     if(which==0) promptNewPin() else AlertDialog.Builder(this).setTitle("Desactivar bloqueo").setMessage("¿Quitar el PIN de este teléfono?")
-                        .setNegativeButton("Cancelar",null).setPositiveButton("Desactivar"){_,_->prefs.edit().remove("app_pin").apply();toast("Bloqueo desactivado")}.show()
+                        .setNegativeButton("Cancelar",null).setPositiveButton("Desactivar"){_,_->prefs.edit().remove("app_pin").remove("biometric_enabled").apply();toast("Bloqueo desactivado")}.show()
                 }.show()
         } else promptNewPin()
     }
