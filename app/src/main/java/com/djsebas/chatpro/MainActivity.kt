@@ -40,8 +40,12 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import io.socket.client.IO
 import io.socket.client.Socket
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 
-class MainActivity : Activity() {
+class MainActivity : FragmentActivity() {
     private val bg=Color.rgb(13,16,29)
     private val panel=Color.rgb(25,30,49)
     private var accent=Color.rgb(154,111,255)
@@ -85,7 +89,7 @@ class MainActivity : Activity() {
         setupMessageNotifications()
         if(token.isNotBlank()) {
             val savedPin=p.getString("app_pin","")?:""
-            if(savedPin.isNotBlank()) showPinGate { loadMe() } else loadMe()
+            if(savedPin.isNotBlank()) showSecurityGate { loadMe() } else loadMe()
         } else showAuth()
     }
 
@@ -512,6 +516,27 @@ class MainActivity : Activity() {
         try { (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify((conversationId+sender).hashCode(),notification) } catch(_:Exception) {}
     }
     private fun hashPin(value:String):String = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+    private fun showSecurityGate(onUnlock:()->Unit) {
+        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+        val savedPin=prefs.getString("app_pin","")?:""
+        if(savedPin.isBlank()){onUnlock();return}
+        if(!prefs.getBoolean("biometric_enabled",false)){showPinGate(onUnlock);return}
+        val manager=BiometricManager.from(this)
+        if(manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)!=BiometricManager.BIOMETRIC_SUCCESS) {
+            showPinGate(onUnlock);return
+        }
+        val prompt=BiometricPrompt(this,ContextCompat.getMainExecutor(this),object:BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult) { onUnlock() }
+            override fun onAuthenticationFailed() { toast("Huella no reconocida. Inténtalo otra vez.") }
+            override fun onAuthenticationError(errorCode:Int,errString:CharSequence) { showPinGate(onUnlock) }
+        })
+        val info=BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Desbloquear CHAT PRO")
+            .setSubtitle("Usa tu huella digital o el PIN de respaldo")
+            .setNegativeButtonText("Usar PIN")
+            .build()
+        prompt.authenticate(info)
+    }
     private fun showPinGate(onUnlock:()->Unit) {
         val pin=EditText(this).apply { hint="PIN de acceso";inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD }
         AlertDialog.Builder(this).setTitle("CHAT PRO bloqueado").setMessage("Introduce tu PIN para continuar.").setView(pin)
@@ -527,9 +552,33 @@ class MainActivity : Activity() {
             AlertDialog.Builder(this).setTitle("Bloqueo con PIN").setMessage("El bloqueo está activado.")
                 .setItems(arrayOf("Cambiar PIN","Desactivar bloqueo")){_,which->
                     if(which==0) promptNewPin() else AlertDialog.Builder(this).setTitle("Desactivar bloqueo").setMessage("¿Quitar el PIN de este teléfono?")
-                        .setNegativeButton("Cancelar",null).setPositiveButton("Desactivar"){_,_->prefs.edit().remove("app_pin").apply();toast("Bloqueo desactivado")}.show()
+                        .setNegativeButton("Cancelar",null).setPositiveButton("Desactivar"){_,_->prefs.edit().remove("app_pin").remove("biometric_enabled").apply();toast("Bloqueo desactivado")}.show()
                 }.show()
         } else promptNewPin()
+    }
+    private fun showBiometricSettings() {
+        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+        if((prefs.getString("app_pin","")?:"").isBlank()) {
+            AlertDialog.Builder(this).setTitle("Primero configura un PIN")
+                .setMessage("El PIN será tu método alternativo si la huella no está disponible.")
+                .setNegativeButton("Cancelar",null)
+                .setPositiveButton("Configurar PIN"){_,_->promptNewPin()}
+                .show()
+            return
+        }
+        val manager=BiometricManager.from(this)
+        if(manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)!=BiometricManager.BIOMETRIC_SUCCESS) {
+            toast("Configura una huella digital o biometría compatible en los ajustes de Android.")
+            return
+        }
+        val enabled=prefs.getBoolean("biometric_enabled",false)
+        AlertDialog.Builder(this).setTitle("Desbloqueo con huella digital")
+            .setMessage(if(enabled)"La huella está activada. ¿Quieres desactivarla?" else "Activa la huella digital. Tu PIN seguirá disponible como respaldo.")
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton(if(enabled)"Desactivar" else "Activar"){_,_->
+                prefs.edit().putBoolean("biometric_enabled",!enabled).apply()
+                toast(if(enabled)"Huella desactivada" else "Huella activada para desbloquear CHAT PRO")
+            }.show()
     }
     private fun promptNewPin() {
         val pin=EditText(this).apply { hint="Nuevo PIN (4 a 8 dígitos)";inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD }
@@ -855,6 +904,7 @@ class MainActivity : Activity() {
         content.addView(action("Cambiar contraseña"){showChangePasswordDialog()})
         content.addView(action("Personalizar apariencia"){showAppearance()})
         content.addView(action("🔒 Bloqueo de la aplicación con PIN"){showPinSettings()})
+        content.addView(action("👆 Desbloqueo con huella digital"){showBiometricSettings()})
         content.addView(action("Cambiar servidor"){configureServer()})
     }
     private fun showLinkEmailDialog() {
@@ -1054,20 +1104,22 @@ class MainActivity : Activity() {
         setBackground(GradientDrawable().apply{setColor(Color.argb(235,25,30,49));cornerRadius=18f;setStroke(1,Color.rgb(85,96,128))})
     }
     private fun action(label:String,click:()->Unit)=Button(this).apply{
-        text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=58
-        gravity=Gravity.CENTER;letterSpacing=0.015f;setPadding(18,12,18,12)
+        text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=54
+        gravity=Gravity.CENTER_VERTICAL or Gravity.START;letterSpacing=0.005f;setPadding(18,11,16,11)
         stateListAnimator=null
-        val top=Color.rgb((Color.red(accent)+28).coerceAtMost(255),(Color.green(accent)+28).coerceAtMost(255),(Color.blue(accent)+28).coerceAtMost(255))
-        val shape=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(top,accent)).apply{
-            cornerRadius=20f;setStroke(1,Color.argb(190,225,220,255))
+        val edge=Color.argb(125,Color.red(accent),Color.green(accent),Color.blue(accent))
+        val shape=GradientDrawable().apply{
+            setColor(Color.argb(238,29,35,55))
+            cornerRadius=18f
+            setStroke(1,edge)
         }
-        background=RippleDrawable(ColorStateList.valueOf(Color.argb(75,255,255,255)),shape,null)
-        elevation=5f
+        background=RippleDrawable(ColorStateList.valueOf(Color.argb(55,255,255,255)),shape,null)
+        elevation=2f
         setOnClickListener{click()}
     }
     private fun note(value:String)=TextView(this).apply{
         text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(15,13,15,13)
-        setBackground(GradientDrawable().apply{setColor(Color.argb(220,25,30,49));cornerRadius=16f;setStroke(1,Color.argb(150,90,105,140))})
+        setBackground(GradientDrawable().apply{setColor(Color.argb(235,29,35,55));cornerRadius=18f;setStroke(1,Color.argb(115,Color.red(accent),Color.green(accent),Color.blue(accent)))})
         val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(2,5,2,7);layoutParams=lp
     }
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
@@ -1079,7 +1131,7 @@ class MainActivity : Activity() {
         super.onResume()
         if(appNeedsUnlock && token.isNotBlank()) {
             appNeedsUnlock=false
-            showPinGate { }
+            showSecurityGate { }
         }
     }
     override fun onDestroy(){
