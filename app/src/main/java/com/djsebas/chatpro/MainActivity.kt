@@ -801,6 +801,7 @@ class MainActivity : FragmentActivity() {
         val favorite=prefs.getBoolean(favoriteKey,false)
         val pinned=prefs.getString(pinnedKey,"")==messageId
         val options=mutableListOf("Responder","Copiar texto","Compartir mensaje",if(favorite)"Quitar de favoritos" else "Guardar en favoritos",if(pinned)"Desfijar mensaje" else "Fijar en este teléfono")
+        if(mine && body.isNotBlank())options.add("Editar mensaje")
         options.add(if(mine)"Eliminar mensaje" else "Eliminar para mí")
         AlertDialog.Builder(this).setTitle("Mensaje de $author").setItems(options.toTypedArray()){_,which->
             when(which){
@@ -809,6 +810,7 @@ class MainActivity : FragmentActivity() {
                 2->{val share=Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_TEXT,"$author: $body")};startActivity(Intent.createChooser(share,"Compartir mensaje"))}
                 3->{prefs.edit().putBoolean(favoriteKey,!favorite).apply();toast(if(favorite)"Quitado de favoritos" else "Guardado en favoritos en este teléfono")}
                 4->{if(pinned)prefs.edit().remove(pinnedKey).apply() else prefs.edit().putString(pinnedKey,messageId).apply();toast(if(pinned)"Mensaje desfijado" else "Mensaje fijado en este teléfono")}
+                5->{if(mine && body.isNotBlank())editMessageDialog(messageId,body) else showMessageDeleteOptions(messageId,mine)}
                 else->showMessageDeleteOptions(messageId,mine)
             }
         }.show()
@@ -877,6 +879,16 @@ class MainActivity : FragmentActivity() {
             card.setOnLongClickListener{showMessageActions(obj,mine);true}
             card.contentDescription="Mantén presionado para ver opciones de este mensaje"
         }
+    }
+    private fun editMessageDialog(messageId:String,original:String) {
+        val input=field("Editar mensaje")
+        input.setText(original)
+        AlertDialog.Builder(this).setTitle("Editar mensaje").setView(input)
+            .setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->
+                val value=input.text.toString().trim()
+                if(value.isBlank()){toast("El mensaje no puede quedar vacío");return@setPositiveButton}
+                api("PATCH","/api/messages/$messageId",JSONObject().put("text",value),{toast("Mensaje actualizado");refreshConversationMessages()},{toast("No se pudo editar: $it")})
+            }.show()
     }
     private fun showMessageDeleteOptions(messageId:String,mine:Boolean) {
         val options=if(mine) arrayOf("Eliminar para mí","Eliminar para todos") else arrayOf("Eliminar para mí")
