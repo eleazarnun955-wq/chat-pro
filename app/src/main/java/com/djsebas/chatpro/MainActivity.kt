@@ -881,7 +881,9 @@ class MainActivity : FragmentActivity() {
                         else api("DELETE","/api/messages/$messageId/bookmark",null,{toast("Quitado de favoritos")},{toast(it)})
                     }.show()
                 }
-                4->api("POST","/api/messages/$messageId/bookmark",JSONObject().put("pinned",true),{toast("Mensaje fijado y sincronizado")},{toast(it)})
+                4->AlertDialog.Builder(this).setTitle("Mensaje fijado").setItems(arrayOf("Fijar mensaje","Desfijar mensaje")){_,choice->
+                    api("POST","/api/messages/$messageId/bookmark",JSONObject().put("pinned",choice==0),{toast(if(choice==0)"Mensaje fijado y sincronizado" else "Mensaje desfijado")},{toast(it)})
+                }.show()
                 5->forwardMessageDialog(messageId)
                 6->{if(mine && body.isNotBlank())editMessageDialog(messageId,body) else showMessageDeleteOptions(messageId,mine)}
                 else->showMessageDeleteOptions(messageId,mine)
