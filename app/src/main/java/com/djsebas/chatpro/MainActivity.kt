@@ -274,21 +274,108 @@ class MainActivity : FragmentActivity() {
     }
     private fun loadConversations() {
         header.text="Tus conversaciones privadas y grupos"
+        content.removeAllViews()
+
+        val search=field("Buscar chats o mensajes")
+        search.setSingleLine(true)
+        content.addView(search)
+        val list=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(0,4,0,8)
+        }
+        content.addView(list)
+
         api("GET","/api/conversations",null,{data->
-            content.removeAllViews()
             val arr=data.optJSONArray("conversations")?:JSONArray()
-            if(arr.length()==0)content.addView(note("Aún no tienes chats. Entra a Contactos para buscar personas."))
-            for(i in 0 until arr.length()){
-                val c=arr.optJSONObject(i)?:continue
-                val id=c.optString("id")
-                val title=c.optString("title").ifBlank{if(c.optString("type")=="group")"Grupo" else "Chat privado"}
-                val unread=c.optInt("unread",0)
-                val unreadLabel=if(unread>0)"  ·  $unread sin leer" else ""
-                val memberIds=c.optJSONArray("members")?:JSONArray()
-                val myId=me.optString("id")
-                val peerId=(0 until memberIds.length()).map{memberIds.optString(it)}.firstOrNull{it.isNotBlank()&&it!=myId}?: ""
-                content.addView(action("✉  $title  ·  ${c.optString("type")}$unreadLabel"){openConversation(id,title,peerId,c.optString("type"))})
+            fun render(query:String) {
+                list.removeAllViews()
+                val needle=query.trim().lowercase()
+                var shown=0
+                for(i in 0 until arr.length()){
+                    val c=arr.optJSONObject(i)?:continue
+                    val id=c.optString("id")
+                    val title=c.optString("title").ifBlank{if(c.optString("type")=="group")"Grupo" else if(c.optString("type")=="room")"Sala" else "Chat privado"}
+                    val type=c.optString("type")
+                    val last=c.optJSONObject("lastMessage")
+                    val preview=when {
+                        last==null -> "Toca para comenzar a conversar"
+                        last.optString("text").isNotBlank() -> last.optString("text")
+                        last.optJSONObject("media")!=null -> "📎 Archivo multimedia"
+                        else -> "Mensaje"
+                    }
+                    if(needle.isNotBlank()&&!title.lowercase().contains(needle)&&!preview.lowercase().contains(needle))continue
+                    shown++
+                    val unread=c.optInt("unread",0)
+                    val members=c.optJSONArray("members")?:JSONArray()
+                    val myId=me.optString("id")
+                    val peerId=(0 until members.length()).map{members.optString(it)}.firstOrNull{it.isNotBlank()&&it!=myId}?: ""
+                    val row=LinearLayout(this).apply {
+                        orientation=LinearLayout.HORIZONTAL
+                        gravity=Gravity.CENTER_VERTICAL
+                        setPadding(12,12,12,12)
+                        background=GradientDrawable().apply {
+                            setColor(Color.argb(150,25,30,49))
+                            cornerRadius=18f
+                            setStroke(1,Color.argb(65,150,150,180))
+                        }
+                        setOnClickListener{openConversation(id,title,peerId,type)}
+                    }
+                    val avatar=TextView(this).apply {
+                        text=title.trim().take(1).uppercase().ifBlank{"C"}
+                        textSize=20f
+                        gravity=Gravity.CENTER
+                        setTextColor(Color.WHITE)
+                        typeface=android.graphics.Typeface.DEFAULT_BOLD
+                        background=GradientDrawable().apply {
+                            setColor(Color.argb(190,Color.red(accent),Color.green(accent),Color.blue(accent)))
+                            shape=GradientDrawable.OVAL
+                        }
+                    }
+                    row.addView(avatar,LinearLayout.LayoutParams(48,48))
+                    val details=LinearLayout(this).apply {
+                        orientation=LinearLayout.VERTICAL
+                        setPadding(12,0,8,0)
+                    }
+                    val titleView=TextView(this).apply {
+                        text=title
+                        textSize=15f
+                        setTextColor(Color.WHITE)
+                        typeface=android.graphics.Typeface.DEFAULT_BOLD
+                        maxLines=1
+                    }
+                    val previewView=TextView(this).apply {
+                        text=preview
+                        textSize=12f
+                        setTextColor(Color.LTGRAY)
+                        maxLines=1
+                    }
+                    details.addView(titleView)
+                    details.addView(previewView)
+                    row.addView(details,LinearLayout.LayoutParams(0,-2,1f))
+                    if(unread>0){
+                        val badge=TextView(this).apply {
+                            text=if(unread>99)"99+" else unread.toString()
+                            textSize=11f
+                            gravity=Gravity.CENTER
+                            setTextColor(Color.WHITE)
+                            setPadding(8,5,8,5)
+                            background=GradientDrawable().apply {
+                                setColor(accent)
+                                cornerRadius=30f
+                            }
+                        }
+                        row.addView(badge)
+                    }
+                    list.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=7})
+                }
+                if(shown==0)list.addView(note(if(needle.isBlank())"Aún no tienes chats. Entra a Contactos para buscar personas." else "No hay conversaciones que coincidan con «$query»."))
             }
+            render("")
+            search.addTextChangedListener(object:android.text.TextWatcher {
+                override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
+                override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { render(s?.toString()?: "") }
+                override fun afterTextChanged(s:android.text.Editable?) {}
+            })
         },{header.text=it})
     }
     private fun createRoomDialog(visibility:String) {
