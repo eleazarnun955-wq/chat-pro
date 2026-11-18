@@ -791,6 +791,28 @@ class MainActivity : FragmentActivity() {
         if(s==null||!s.connected()){toast("Espera a que el chat conecte");return}
         s.emit("conversation:send",JSONObject().put("text",text));composer.setText("")
     }
+    private fun showMessageActions(obj:JSONObject,mine:Boolean) {
+        val messageId=obj.optString("id")
+        val author=obj.optJSONObject("user")?.optString("name")?: "Usuario"
+        val body=obj.optString("text")
+        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+        val favoriteKey="favorite_message_"+messageId
+        val pinnedKey="pinned_message_"+currentConversation
+        val favorite=prefs.getBoolean(favoriteKey,false)
+        val pinned=prefs.getString(pinnedKey,"")==messageId
+        val options=mutableListOf("Responder","Copiar texto","Compartir mensaje",if(favorite)"Quitar de favoritos" else "Guardar en favoritos",if(pinned)"Desfijar mensaje" else "Fijar en este teléfono")
+        options.add(if(mine)"Eliminar mensaje" else "Eliminar para mí")
+        AlertDialog.Builder(this).setTitle("Mensaje de $author").setItems(options.toTypedArray()){_,which->
+            when(which){
+                0->{composer.setText("↪ $author: "+body+"\n");composer.setSelection(composer.text.length);composer.requestFocus()}
+                1->{if(body.isBlank())toast("Este mensaje no contiene texto para copiar") else {val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager;clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Mensaje de $author",body));toast("Texto copiado")}}
+                2->{val share=Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_TEXT,"$author: $body")};startActivity(Intent.createChooser(share,"Compartir mensaje"))}
+                3->{prefs.edit().putBoolean(favoriteKey,!favorite).apply();toast(if(favorite)"Quitado de favoritos" else "Guardado en favoritos en este teléfono")}
+                4->{if(pinned)prefs.edit().remove(pinnedKey).apply() else prefs.edit().putString(pinnedKey,messageId).apply();toast(if(pinned)"Mensaje desfijado" else "Mensaje fijado en este teléfono")}
+                else->showMessageDeleteOptions(messageId,mine)
+            }
+        }.show()
+    }
     private fun renderConversationMessage(obj:JSONObject) {
         if(obj.optString("deletedAt").isNotBlank()) {
             content.addView(note("🚫 Este mensaje fue eliminado para todos"))
@@ -852,7 +874,7 @@ class MainActivity : FragmentActivity() {
         val messageId=obj.optString("id")
         if(messageId.isNotBlank()){
             card.addView(action("Reaccionar  👍  ❤️  😂  🔥"){showMessageReactions(messageId)})
-            card.setOnLongClickListener{showMessageDeleteOptions(messageId,mine);true}
+            card.setOnLongClickListener{showMessageActions(obj,mine);true}
             card.contentDescription="Mantén presionado para ver opciones de este mensaje"
         }
     }
