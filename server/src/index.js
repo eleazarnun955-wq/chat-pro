@@ -104,6 +104,18 @@ app.post("/api/rooms/:id/join",auth,asyncRoute(async(q,r)=>{
  if(!joined)return r.status(404).json({error:"La sala no existe o no es pública"});
  r.json({ok:true});
 }));
+app.patch("/api/messages/:id",auth,asyncRoute(async(q,r)=>{
+ const message=await db.getMessage(q.params.id);
+ if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
+ if(message.sender_id!==q.user.id)return r.sendStatus(403);
+ if(message.deleted_at)return r.status(409).json({error:"El mensaje ya fue eliminado"});
+ if(Date.now()-new Date(message.created_at).getTime()>48*60*60*1000)return r.status(403).json({error:"Ya pasó el plazo de 48 horas para editarlo"});
+ const body=typeof q.body?.text==="string"?q.body.text.trim():"";
+ if(!body||body.length>5000)return r.status(400).json({error:"El mensaje debe tener entre 1 y 5000 caracteres"});
+ const updated=await db.editMessage(message.id,q.user.id,body);
+ io.to(message.conversation_id).emit("message:edited",{messageId:message.id,text:updated.body});
+ r.json({ok:true,message:{id:updated.id,text:updated.body}});
+}));
 app.post("/api/messages/:id/delete",auth,asyncRoute(async(q,r)=>{
  const message=await db.getMessage(q.params.id);
  if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
