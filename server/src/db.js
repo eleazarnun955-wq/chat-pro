@@ -143,6 +143,15 @@ export async function listMessages(conversationId, userId) {
 export async function getMessage(id) {
   const { data,error } = await supabase.from("messages").select("id,conversation_id,sender_id,created_at,deleted_at").eq("id",id).maybeSingle(); fail(error); return data;
 }
+export async function editMessage(messageId,userId,text) {
+  const {data,error}=await supabase.from("messages")
+    .update({body:text})
+    .eq("id",messageId).eq("sender_id",userId).is("deleted_at",null)
+    .select("id,conversation_id,body").maybeSingle();
+  fail(error);
+  if(!data) throw new Error("No se pudo editar: el mensaje ya no existe o no te pertenece");
+  return data;
+}
 export async function deleteMessageForUser(messageId,userId) {
   const {error}=await supabase.from("message_hidden_for").upsert({message_id:messageId,user_id:userId},{onConflict:"message_id,user_id"}); fail(error);
 }
