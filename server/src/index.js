@@ -414,6 +414,18 @@ io.on("connection",socket=>{
  });
  socket.on("conversation:send",async payload=>{
   try{const id=socket.data.conversationId;if(!user||!id||!await member(id,user.id)||!payload||typeof payload!=="object")return;
+   const {data:conversationMeta,error:conversationMetaError}=await db.supabase.from("conversations").select("type").eq("id",id).single();
+   if(conversationMetaError)throw conversationMetaError;
+   if(conversationMeta.type==="direct"){
+    const {data:members,error:membersError}=await db.supabase.from("conversation_members").select("user_id").eq("conversation_id",id);
+    if(membersError)throw membersError;
+    const peer=(members||[]).map(x=>x.user_id).find(x=>x!==user.id);
+    if(peer){
+     const {data:blocks,error:blockError}=await db.supabase.from("user_blocks").select("blocker_id").or(`and(blocker_id.eq.${user.id},blocked_id.eq.${peer}),and(blocker_id.eq.${peer},blocked_id.eq.${user.id})`);
+     if(blockError)throw blockError;
+     if((blocks||[]).length){socket.emit("chat:error",{message:"No puedes enviar mensajes por la configuración de bloqueo"});return;}
+    }
+   }
    const text=clean(payload.text,4000);let media=null;
    if(payload.media&&typeof payload.media==="object"){const m=payload.media,p=clean(m.downloadPath,500);if(!p.startsWith("/api/uploads/"))return;media={name:clean(m.name,180)||"Archivo",mimeType:clean(m.mimeType,100)||"application/octet-stream",size:Number(m.size)||0,downloadPath:p}}
    if(!text&&!media)return;
