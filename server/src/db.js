@@ -104,6 +104,12 @@ export async function listConversations(userId) {
     fail(mErr); fail(lErr); fail(uErr);
     out.push({ id:c.id, type:c.type, title:c.title, members:(members||[]).map(x=>x.user_id), createdBy:c.created_by, createdAt:c.created_at, visibility:c.visibility, description:c.description, unread:unread||0, lastMessage:last?.[0]?{id:last[0].id,text:last[0].body,media:last[0].media,createdAt:last[0].created_at,senderId:last[0].sender_id}:null });
   }
+  // Sort by recent activity, not conversation creation, so active chats stay at the top.
+  out.sort((a,b) => {
+    const aTime = Date.parse(a.lastMessage?.createdAt || a.createdAt || "") || 0;
+    const bTime = Date.parse(b.lastMessage?.createdAt || b.createdAt || "") || 0;
+    return bTime - aTime;
+  });
   return out;
 }
 export async function createConversation({ id, type, title, members, createdBy, visibility="private", description="" }) {
