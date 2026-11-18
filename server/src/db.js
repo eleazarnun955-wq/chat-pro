@@ -140,6 +140,17 @@ export async function listMessages(conversationId, userId) {
   const hiddenIds=new Set((hidden||[]).map(x=>x.message_id));
   return (data||[]).filter(m=>!hiddenIds.has(m.id)).map(m=>({ id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at, deliveredAt:m.delivered_at, readAt:m.read_at, deletedAt:m.deleted_at||null, deletedBy:m.deleted_by||null, reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) }));
 }
+export async function searchConversationMessages(conversationId,userId,term) {
+  const { data: rows, error } = await supabase.from("messages")
+    .select("id,conversation_id,sender_id,body,created_at,media,profiles!messages_sender_id_fkey(*)")
+    .eq("conversation_id",conversationId).ilike("body", "%" + term.replace(/[%,_]/g, "") + "%")
+    .is("deleted_at",null).order("created_at",{ascending:false}).limit(100);
+  fail(error);
+  const { data:hidden,error:he } = await supabase.from("message_hidden_for").select("message_id").eq("user_id",userId);
+  fail(he);
+  const hiddenIds=new Set((hidden||[]).map(x=>x.message_id));
+  return (rows||[]).filter(x=>!hiddenIds.has(x.id)).map(x=>({id:x.id,text:x.body,createdAt:x.created_at,user:publicUser(x.profiles)}));
+}
 export async function getMessage(id) {
   const { data,error } = await supabase.from("messages").select("id,conversation_id,sender_id,created_at,deleted_at").eq("id",id).maybeSingle(); fail(error); return data;
 }
