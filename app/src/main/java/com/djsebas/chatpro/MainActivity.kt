@@ -46,9 +46,9 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 
 class MainActivity : FragmentActivity() {
-    private val bg=Color.rgb(13,16,29)
-    private val panel=Color.rgb(25,30,49)
-    private var accent=Color.rgb(154,111,255)
+    private val bg=Color.rgb(17,27,33)
+    private val panel=Color.rgb(32,44,51)
+    private var accent=Color.rgb(37,211,102)
     private val http=OkHttpClient.Builder().connectTimeout(25,TimeUnit.SECONDS).readTimeout(90,TimeUnit.SECONDS).build()
     private val defaultBaseUrl="https://chat-pro-server-qhjw.onrender.com"
     private var baseUrl=defaultBaseUrl
@@ -84,7 +84,7 @@ class MainActivity : FragmentActivity() {
             p.edit().remove("server_url").apply()
             defaultBaseUrl
         }
-        accent=p.getInt("accent_color",Color.rgb(154,111,255))
+        accent=p.getInt("accent_color",Color.rgb(37,211,102))
         token=p.getString("token","")?:""
         setupMessageNotifications()
         if(token.isNotBlank()) {
@@ -174,7 +174,7 @@ class MainActivity : FragmentActivity() {
             orientation=LinearLayout.VERTICAL
         }
         brand.addView(TextView(this).apply {
-            text="CHAT PRO";textSize=23f;setTextColor(Color.WHITE);typeface=android.graphics.Typeface.DEFAULT_BOLD
+            text="CHAT PRO";textSize=25f;setTextColor(Color.WHITE);typeface=android.graphics.Typeface.DEFAULT_BOLD;letterSpacing=0.02f
         })
         brand.addView(TextView(this).apply {
             text=me.optString("name","Usuario")+"  ·  @"+me.optString("username","")
@@ -184,15 +184,15 @@ class MainActivity : FragmentActivity() {
         val profile=TextView(this).apply {
             text="👤";textSize=22f;gravity=Gravity.CENTER
             setTextColor(Color.WHITE);setPadding(13,9,13,9)
-            background=GradientDrawable().apply{setColor(Color.argb(210,35,42,65));cornerRadius=24f;setStroke(1,Color.argb(150,Color.red(accent),Color.green(accent),Color.blue(accent)))}
+            background=GradientDrawable().apply{setColor(Color.argb(255,42,57,66));cornerRadius=24f;setStroke(1,Color.argb(150,Color.red(accent),Color.green(accent),Color.blue(accent)))}
             contentDescription="Abrir perfil"
             setOnClickListener{showHome("Perfil")}
         }
         topBar.addView(profile,LinearLayout.LayoutParams(48,48))
         root.addView(topBar)
         header=TextView(this).apply {
-            text="";textSize=12f;setTextColor(Color.LTGRAY)
-            setPadding(5,5,5,7)
+            text="";textSize=12f;setTextColor(Color.rgb(134,150,156))
+            setPadding(5,5,5,9)
         }
         root.addView(header)
         val mainScroll=ScrollView(this)
@@ -205,10 +205,10 @@ class MainActivity : FragmentActivity() {
         val bottom=LinearLayout(this).apply {
             orientation=LinearLayout.HORIZONTAL
             gravity=Gravity.CENTER
-            setPadding(4,7,4,4)
+            setPadding(5,8,5,5)
             background=GradientDrawable().apply {
-                setColor(Color.argb(235,20,25,43));cornerRadius=24f
-                setStroke(1,Color.argb(110,125,135,170))
+                setColor(Color.rgb(32,44,51));cornerRadius=22f
+                setStroke(1,Color.rgb(48,66,74))
             }
         }
         val tabs=listOf(
@@ -224,8 +224,8 @@ class MainActivity : FragmentActivity() {
                 gravity=Gravity.CENTER
                 setPadding(3,7,3,7)
                 background=GradientDrawable().apply {
-                    setColor(if(selected)Color.argb(75,Color.red(accent),Color.green(accent),Color.blue(accent)) else Color.TRANSPARENT)
-                    cornerRadius=18f
+                    setColor(if(selected)Color.argb(48,Color.red(accent),Color.green(accent),Color.blue(accent)) else Color.TRANSPARENT)
+                    cornerRadius=16f
                 }
                 setOnClickListener{showHome(destination)}
             }
@@ -314,7 +314,7 @@ class MainActivity : FragmentActivity() {
                         gravity=Gravity.CENTER_VERTICAL
                         setPadding(12,12,12,12)
                         background=GradientDrawable().apply {
-                            setColor(Color.argb(150,25,30,49))
+                            setColor(Color.argb(245,32,44,51))
                             cornerRadius=18f
                             setStroke(1,Color.argb(65,150,150,180))
                         }
@@ -1199,7 +1199,7 @@ class MainActivity : FragmentActivity() {
     private fun field(hint:String)=EditText(this).apply{
         this.hint=hint;setHintTextColor(Color.LTGRAY);setTextColor(Color.WHITE)
         setPadding(16,12,16,12);minHeight=56;textSize=16f
-        setBackground(GradientDrawable().apply{setColor(Color.argb(235,25,30,49));cornerRadius=18f;setStroke(1,Color.rgb(85,96,128))})
+        setBackground(GradientDrawable().apply{setColor(Color.argb(245,32,44,51));cornerRadius=18f;setStroke(1,Color.rgb(65,82,91))})
     }
     private fun action(label:String,click:()->Unit)=Button(this).apply{
         text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=54
@@ -1207,7 +1207,7 @@ class MainActivity : FragmentActivity() {
         stateListAnimator=null
         val edge=Color.argb(125,Color.red(accent),Color.green(accent),Color.blue(accent))
         val shape=GradientDrawable().apply{
-            setColor(Color.argb(238,29,35,55))
+            setColor(Color.argb(245,32,44,51))
             cornerRadius=18f
             setStroke(1,edge)
         }
@@ -1217,7 +1217,7 @@ class MainActivity : FragmentActivity() {
     }
     private fun note(value:String)=TextView(this).apply{
         text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(15,13,15,13)
-        setBackground(GradientDrawable().apply{setColor(Color.argb(235,29,35,55));cornerRadius=18f;setStroke(1,Color.argb(115,Color.red(accent),Color.green(accent),Color.blue(accent)))})
+        setBackground(GradientDrawable().apply{setColor(Color.argb(245,32,44,51));cornerRadius=18f;setStroke(1,Color.argb(115,Color.red(accent),Color.green(accent),Color.blue(accent)))})
         val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(2,5,2,7);layoutParams=lp
     }
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
