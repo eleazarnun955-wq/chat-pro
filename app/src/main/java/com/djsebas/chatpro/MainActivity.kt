@@ -352,6 +352,17 @@ class MainActivity : FragmentActivity() {
                     details.addView(titleView)
                     details.addView(previewView)
                     row.addView(details,LinearLayout.LayoutParams(0,-2,1f))
+                    val time=last?.optString("createdAt","")?: ""
+                    if(time.length>=16){
+                        val clock=TextView(this).apply {
+                            text=time.substring(11,16)
+                            textSize=10f
+                            gravity=Gravity.CENTER
+                            setTextColor(Color.LTGRAY)
+                            setPadding(4,0,4,0)
+                        }
+                        row.addView(clock)
+                    }
                     if(unread>0){
                         val badge=TextView(this).apply {
                             text=if(unread>99)"99+" else unread.toString()
