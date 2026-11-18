@@ -95,6 +95,12 @@ app.post("/api/conversations",auth,asyncRoute(async(q,r)=>{
  const room=q.body?.type==="room";
  const group=room||members.length>2||q.body?.type==="group";
  const visibility=room&&q.body?.visibility==="public"?"public":"private";
+ if(!group && members.length===2){
+  const other=members.find(x=>x!==q.user.id);
+  const {data:blocked,error:blockError}=await db.supabase.from("user_blocks").select("blocker_id,blocked_id").or(`and(blocker_id.eq.${q.user.id},blocked_id.eq.${other}),and(blocker_id.eq.${other},blocked_id.eq.${q.user.id})`);
+  if(blockError)throw blockError;
+  if((blocked||[]).length)return r.status(403).json({error:"No se puede iniciar esta conversación por la configuración de bloqueo"});
+ }
  const conversation=await db.createConversation({id:randomUUID(),type:room?"room":group?"group":"direct",title:clean(q.body?.title,60)||(group?"Nuevo grupo":"Chat privado"),members,createdBy:q.user.id,visibility,description:clean(q.body?.description,500)});
  r.status(201).json({conversation});
 }));
@@ -152,6 +158,58 @@ app.post("/api/conversations/:id/read",auth,asyncRoute(async(q,r)=>{
  io.to(q.params.id).emit("conversation:read",{userId:q.user.id,readAt});
  r.json({ok:true,readAt});
 }));
+
+app.get("/api/conversations/:id/search",auth,asyncRoute(async(q,r)=>{
+ if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
+ const term=clean(q.query.q,100);
+ if(term.length<2)return r.json({messages:[]});
+ r.json({messages:await db.searchConversationMessages(q.params.id,q.user.id,term)});
+}));
+app.post("/api/messages/:id/forward",auth,asyncRoute(async(q,r)=>{
+ const original=await db.getMessage(q.params.id);
+ const targetId=clean(q.body?.conversationId,80);
+ if(!original||!await member(original.conversation_id,q.user.id)||!await member(targetId,q.user.id))return r.sendStatus(404);
+ if(original.deleted_at)return r.status(409).json({error:"No se puede reenviar un mensaje eliminado"});
+ const {data:source,error}=await db.supabase.from("messages").select("body,media").eq("id",original.id).single();
+ if(error)throw error;
+ const forwarded=await db.createMessage({id:randomUUID(),conversationId:targetId,senderId:q.user.id,text:source.body||"",media:source.media||null});
+ io.to(targetId).emit("conversation:message",forwarded);
+ r.status(201).json({message:forwarded});
+}));
+app.post("/api/messages/:id/bookmark",auth,asyncRoute(async(q,r)=>{
+ const message=await db.getMessage(q.params.id);
+ if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
+ const pinned=q.body?.pinned===true;
+ const {data,error}=await db.supabase.from("message_bookmarks").upsert({user_id:q.user.id,message_id:message.id,is_pinned:pinned},{onConflict:"user_id,message_id"}).select().single();
+ if(error)throw error;
+ r.json({bookmark:data});
+}));
+app.delete("/api/messages/:id/bookmark",auth,asyncRoute(async(q,r)=>{
+ const message=await db.getMessage(q.params.id);
+ if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
+ const {error}=await db.supabase.from("message_bookmarks").delete().eq("user_id",q.user.id).eq("message_id",message.id);
+ if(error)throw error;r.json({ok:true});
+}));
+app.get("/api/bookmarks",auth,asyncRoute(async(q,r)=>{
+ const {data,error}=await db.supabase.from("message_bookmarks").select("is_pinned,created_at,messages(id,conversation_id,body,media,created_at)").eq("user_id",q.user.id).order("created_at",{ascending:false}).limit(300);
+ if(error)throw error;r.json({bookmarks:data||[]});
+}));
+app.post("/api/users/:id/block",auth,asyncRoute(async(q,r)=>{
+ const target=q.params.id;if(target===q.user.id||!await db.findUserById(target))return r.status(400).json({error:"Usuario no válido"});
+ const {error}=await db.supabase.from("user_blocks").upsert({blocker_id:q.user.id,blocked_id:target},{onConflict:"blocker_id,blocked_id"});
+ if(error)throw error;r.json({ok:true});
+}));
+app.delete("/api/users/:id/block",auth,asyncRoute(async(q,r)=>{
+ const {error}=await db.supabase.from("user_blocks").delete().eq("blocker_id",q.user.id).eq("blocked_id",q.params.id);
+ if(error)throw error;r.json({ok:true});
+}));
+app.post("/api/users/:id/report",auth,asyncRoute(async(q,r)=>{
+ const target=q.params.id,reason=clean(q.body?.reason,500);
+ if(target===q.user.id||!await db.findUserById(target)||reason.length<3)return r.status(400).json({error:"Selecciona un motivo válido"});
+ const {error}=await db.supabase.from("user_reports").insert({reporter_id:q.user.id,reported_id:target,reason});
+ if(error)throw error;r.status(201).json({ok:true});
+}));
+
 app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
  if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
  r.json({messages:await db.listMessages(q.params.id,q.user.id)});
