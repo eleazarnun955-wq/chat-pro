@@ -555,6 +555,7 @@ class MainActivity : FragmentActivity() {
                 runOnUiThread{renderConversationMessage(obj)}
             }
             socket?.on("message:reaction"){runOnUiThread{refreshConversationMessages()}}
+            socket?.on("message:edited"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("message:deleted"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("message:hidden"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("conversation:read"){runOnUiThread{refreshConversationMessages()}}
