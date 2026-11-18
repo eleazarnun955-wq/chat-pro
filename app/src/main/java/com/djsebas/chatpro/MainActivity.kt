@@ -486,6 +486,7 @@ class MainActivity : FragmentActivity() {
         root.addView(action("🔎 Buscar dentro de esta conversación"){searchConversationDialog(id)})
         root.addView(action("Cambiar fondo de este chat"){chooseWallpaper("chat_wallpaper_"+id)})
         root.addView(action("Agregar integrante al grupo o sala privada"){addConversationMemberDialog(id)})
+        root.addView(action("⭐ Ver favoritos y mensajes fijados"){showSavedMessages()})
         root.addView(action("🧹 Limpiar historial"){confirmClearConversationHistory(id)})
         applyWallpaper("chat_wallpaper_"+id)
         api("GET","/api/conversations/$id/messages",null,{data->
@@ -495,6 +496,25 @@ class MainActivity : FragmentActivity() {
             api("POST","/api/conversations/$id/read",JSONObject(),{},{})
             header.text="Conectando al chat en tiempo real…";connectConversation()
         },{header.text=it})
+    }
+    private fun showSavedMessages() {
+        api("GET","/api/bookmarks",null,{data->
+            val arr=data.optJSONArray("bookmarks")?:JSONArray()
+            if(arr.length()==0){toast("Todavía no tienes mensajes guardados");return@api}
+            val labels=(0 until arr.length()).map{idx->
+                val row=arr.optJSONObject(idx)?:JSONObject()
+                val msg=row.optJSONObject("messages")?:JSONObject()
+                val pin=if(row.optBoolean("is_pinned"))"📌 " else "⭐ "
+                pin+msg.optString("body","Mensaje").take(85)
+            }.toTypedArray()
+            AlertDialog.Builder(this).setTitle("Tus mensajes guardados").setItems(labels){_,which->
+                val row=arr.optJSONObject(which)?:return@setItems
+                val msg=row.optJSONObject("messages")?:JSONObject()
+                AlertDialog.Builder(this).setMessage(msg.optString("body","Archivo multimedia"))
+                    .setPositiveButton("Quitar de guardados"){_,_->api("DELETE","/api/messages/${msg.optString("id")}/bookmark",null,{toast("Eliminado de guardados")},{toast(it)})}
+                    .setNegativeButton("Cerrar",null).show()
+            }.show()
+        },{toast(it)})
     }
     private fun searchConversationDialog(conversationId:String) {
         val query=field("Escribe una palabra o frase")
