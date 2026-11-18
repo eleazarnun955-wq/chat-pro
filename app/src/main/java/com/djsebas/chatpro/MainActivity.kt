@@ -483,6 +483,7 @@ class MainActivity : FragmentActivity() {
             callRow.addView(action("🎥 Videollamada"){startCall("video")},LinearLayout.LayoutParams(0,54,1f))
             root.addView(callRow)
         }
+        root.addView(action("🔎 Buscar dentro de esta conversación"){searchConversationDialog(id)})
         root.addView(action("Cambiar fondo de este chat"){chooseWallpaper("chat_wallpaper_"+id)})
         root.addView(action("Agregar integrante al grupo o sala privada"){addConversationMemberDialog(id)})
         root.addView(action("🧹 Limpiar historial"){confirmClearConversationHistory(id)})
@@ -494,6 +495,46 @@ class MainActivity : FragmentActivity() {
             api("POST","/api/conversations/$id/read",JSONObject(),{},{})
             header.text="Conectando al chat en tiempo real…";connectConversation()
         },{header.text=it})
+    }
+    private fun searchConversationDialog(conversationId:String) {
+        val query=field("Escribe una palabra o frase")
+        AlertDialog.Builder(this).setTitle("Buscar en mensajes").setView(query)
+            .setNegativeButton("Cerrar",null).setPositiveButton("Buscar"){_,_->
+                val term=query.text.toString().trim()
+                if(term.length<2){toast("Escribe al menos 2 caracteres");return@setPositiveButton}
+                api("GET","/api/conversations/$conversationId/search?q="+Uri.encode(term),null,{data->
+                    val arr=data.optJSONArray("messages")?:JSONArray()
+                    if(arr.length()==0){toast("No encontré mensajes");return@api}
+                    val labels=(0 until arr.length()).map{idx->
+                        val m=arr.optJSONObject(idx)?:JSONObject()
+                        val author=m.optJSONObject("user")?.optString("name","Usuario")?: "Usuario"
+                        "$author · "+m.optString("text").take(100)
+                    }.toTypedArray()
+                    AlertDialog.Builder(this).setTitle("Resultados: ${arr.length()}")
+                        .setItems(labels){_,idx->
+                            val m=arr.optJSONObject(idx)?:return@setItems
+                            val date=m.optString("createdAt").replace("T"," ").take(16)
+                            AlertDialog.Builder(this).setMessage(m.optString("text")+"\n\n"+date)
+                                .setPositiveButton("Entendido",null).show()
+                        }.show()
+                },{toast("No se pudo buscar: $it")})
+            }.show()
+    }
+    private fun forwardMessageDialog(messageId:String) {
+        api("GET","/api/conversations",null,{data->
+            val arr=data.optJSONArray("conversations")?:JSONArray()
+            val targets=mutableListOf<JSONObject>();val labels=mutableListOf<String>()
+            for(i in 0 until arr.length()){
+                val c=arr.optJSONObject(i)?:continue
+                if(c.optString("id")==currentConversation)continue
+                targets.add(c);labels.add(c.optString("title").ifBlank{"Conversación"})
+            }
+            if(targets.isEmpty()){toast("No tienes otro chat para reenviar");return@api}
+            AlertDialog.Builder(this).setTitle("Reenviar a…").setItems(labels.toTypedArray()){_,which->
+                val target=targets[which]
+                api("POST","/api/messages/$messageId/forward",JSONObject().put("conversationId",target.optString("id")),{toast("Mensaje reenviado")},{toast("No se pudo reenviar: $it")})
+            }.show()
+        },{toast(it)})
     }
     private fun confirmClearConversationHistory(conversationId:String) {
         AlertDialog.Builder(this)
@@ -750,8 +791,18 @@ class MainActivity : FragmentActivity() {
     }
     private fun showRoomUserActions(userId:String,name:String) {
         if(userId.isBlank()||userId==me.optString("id"))return
-        AlertDialog.Builder(this).setTitle(name).setItems(arrayOf("Iniciar chat privado","Compartir audio o imagen")){_,which->
-            createConversation(userId,name,which==1)
+        AlertDialog.Builder(this).setTitle(name).setItems(arrayOf("Iniciar chat privado","Compartir audio o imagen","Bloquear usuario","Reportar usuario")){_,which->
+            when(which){
+                0->createConversation(userId,name,false)
+                1->createConversation(userId,name,true)
+                2->AlertDialog.Builder(this).setMessage("No recibirás ni podrás iniciar conversaciones con esta persona.")
+                    .setNegativeButton("Cancelar",null).setPositiveButton("Bloquear"){_,_->api("POST","/api/users/$userId/block",JSONObject(),{toast("Usuario bloqueado")},{toast(it)})}.show()
+                3->{
+                    val reason=field("Describe el motivo del reporte")
+                    AlertDialog.Builder(this).setTitle("Reportar usuario").setView(reason)
+                        .setNegativeButton("Cancelar",null).setPositiveButton("Enviar reporte"){_,_->api("POST","/api/users/$userId/report",JSONObject().put("reason",reason.text.toString()),{toast("Reporte enviado")},{toast(it)})}.show()
+                }
+            }
         }.show()
     }
     private fun chooseShareMedia() {
@@ -796,12 +847,7 @@ class MainActivity : FragmentActivity() {
         val messageId=obj.optString("id")
         val author=obj.optJSONObject("user")?.optString("name")?: "Usuario"
         val body=obj.optString("text")
-        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
-        val favoriteKey="favorite_message_"+messageId
-        val pinnedKey="pinned_message_"+currentConversation
-        val favorite=prefs.getBoolean(favoriteKey,false)
-        val pinned=prefs.getString(pinnedKey,"")==messageId
-        val options=mutableListOf("Responder","Copiar texto","Compartir mensaje",if(favorite)"Quitar de favoritos" else "Guardar en favoritos",if(pinned)"Desfijar mensaje" else "Fijar en este teléfono")
+        val options=mutableListOf("Responder","Copiar texto","Compartir mensaje","Guardar/Quitar de favoritos","Fijar/Desfijar mensaje","Reenviar a otro chat")
         if(mine && body.isNotBlank())options.add("Editar mensaje")
         options.add(if(mine)"Eliminar mensaje" else "Eliminar para mí")
         AlertDialog.Builder(this).setTitle("Mensaje de $author").setItems(options.toTypedArray()){_,which->
@@ -809,9 +855,15 @@ class MainActivity : FragmentActivity() {
                 0->{composer.setText("↪ $author: "+body+"\n");composer.setSelection(composer.text.length);composer.requestFocus()}
                 1->{if(body.isBlank())toast("Este mensaje no contiene texto para copiar") else {val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager;clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Mensaje de $author",body));toast("Texto copiado")}}
                 2->{val share=Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_TEXT,"$author: $body")};startActivity(Intent.createChooser(share,"Compartir mensaje"))}
-                3->{prefs.edit().putBoolean(favoriteKey,!favorite).apply();toast(if(favorite)"Quitado de favoritos" else "Guardado en favoritos en este teléfono")}
-                4->{if(pinned)prefs.edit().remove(pinnedKey).apply() else prefs.edit().putString(pinnedKey,messageId).apply();toast(if(pinned)"Mensaje desfijado" else "Mensaje fijado en este teléfono")}
-                5->{if(mine && body.isNotBlank())editMessageDialog(messageId,body) else showMessageDeleteOptions(messageId,mine)}
+                3->{
+                    AlertDialog.Builder(this).setTitle("Favoritos").setItems(arrayOf("Guardar","Quitar")){_,choice->
+                        if(choice==0)api("POST","/api/messages/$messageId/bookmark",JSONObject().put("pinned",false),{toast("Guardado y sincronizado en tus dispositivos")},{toast(it)})
+                        else api("DELETE","/api/messages/$messageId/bookmark",null,{toast("Quitado de favoritos")},{toast(it)})
+                    }.show()
+                }
+                4->api("POST","/api/messages/$messageId/bookmark",JSONObject().put("pinned",true),{toast("Mensaje fijado y sincronizado")},{toast(it)})
+                5->forwardMessageDialog(messageId)
+                6->{if(mine && body.isNotBlank())editMessageDialog(messageId,body) else showMessageDeleteOptions(messageId,mine)}
                 else->showMessageDeleteOptions(messageId,mine)
             }
         }.show()
