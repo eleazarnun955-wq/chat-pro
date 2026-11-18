@@ -12,7 +12,11 @@
 - Cuentas, perfiles, sesiones y búsqueda de usuarios.
 - Conversaciones privadas uno a uno, grupos privados y salas públicas/privadas.
 - Mensajes en tiempo real, historial, no leídos y confirmaciones de entrega y lectura.
-- Reacciones, presencia y estados de 24 horas.\n- Notas de voz grabables y enviables desde chats y salas.\n- Avisos de mensajes privados y de salas mientras la app mantiene conexión.\n- Bloqueo local con PIN y opción de huella digital con PIN de respaldo.\n- Menús y controles rediseñados con navegación inferior: Chats, Contactos, Estados y Llamadas.
+- Reacciones, presencia y estados de 24 horas.
+- Notas de voz grabables y enviables desde chats y salas.
+- Avisos de mensajes privados y de salas mientras la app mantiene conexión.
+- Bloqueo local con PIN y opción de huella digital con PIN de respaldo.
+- Menús y controles rediseñados con navegación inferior: Chats, Contactos, Estados y Llamadas.
 - Fotos, videos, audio y documentos mediante almacenamiento privado.
 - Vista previa y reproducción integrada de archivos multimedia.
 - Descargas autenticadas a `Descargas/CHAT PRO`.
