@@ -62,6 +62,7 @@ class MainActivity : FragmentActivity() {
     private var uploadMode="chat"
     private var pendingStatusCaption=""
     private var pendingWallpaperKey="home_wallpaper"
+    private var uiScale=1
     private var socket:Socket?=null
     private var callSocket:Socket?=null
     private var audioPlayer:MediaPlayer?=null
@@ -90,6 +91,7 @@ class MainActivity : FragmentActivity() {
             defaultBaseUrl
         }
         accent=p.getInt("accent_color",Color.rgb(37,211,102))
+        uiScale=p.getInt("ui_scale",1).coerceIn(0,2)
         token=readSecureToken()
         setupMessageNotifications()
         if(token.isNotBlank()) {
@@ -1349,6 +1351,19 @@ class MainActivity : FragmentActivity() {
     private fun showAppearance() {
         content.removeAllViews()
         header.text="Personaliza CHAT PRO: el fondo oficial viene incluido para todos; tus cambios personales se guardan en este teléfono"
+        content.addView(note("Tamaño de botones y texto"))
+        content.addView(action("Ajustar tamaño de interfaz · actual: "+when(uiScale){0->"Compacto";2->"Grande";else->"Estándar"}){
+            val choices=arrayOf("Compacto","Estándar","Grande")
+            AlertDialog.Builder(this).setTitle("Tamaño de interfaz")
+                .setSingleChoiceItems(choices,uiScale){dialog,which->
+                    uiScale=which
+                    getSharedPreferences("chatpro",MODE_PRIVATE).edit().putInt("ui_scale",uiScale).apply()
+                    dialog.dismiss()
+                    toast("Tamaño guardado en este teléfono")
+                    showAppearance()
+                }.setNegativeButton("Cancelar",null).show()
+        })
+        content.addView(note("El tamaño elegido se conserva al cerrar y volver a abrir CHAT PRO."))
         content.addView(note("Color de botones y detalles"))
         val colors=listOf("Violeta" to Color.rgb(154,111,255),"Azul" to Color.rgb(35,125,230),"Verde" to Color.rgb(24,150,110),"Rosa" to Color.rgb(210,75,145),"Naranja" to Color.rgb(220,125,35),"Turquesa" to Color.rgb(0,150,160))
         colors.forEach { (name,color)->
@@ -1513,14 +1528,17 @@ class MainActivity : FragmentActivity() {
         row.addView(eye,LinearLayout.LayoutParams(52,56))
         return row
     }
+    private fun uiScaleFactor()=when(uiScale){0->0.9f;2->1.15f;else->1f}
     private fun field(hint:String)=EditText(this).apply{
+        val scale=uiScaleFactor()
         this.hint=hint;setHintTextColor(Color.LTGRAY);setTextColor(Color.WHITE)
-        setPadding(16,12,16,12);minHeight=56;textSize=16f
+        setPadding((16*scale).toInt(),(12*scale).toInt(),(16*scale).toInt(),(12*scale).toInt());minHeight=(56*scale).toInt();textSize=16f*scale
         setBackground(GradientDrawable().apply{setColor(Color.argb(245,32,44,51));cornerRadius=18f;setStroke(1,Color.rgb(65,82,91))})
     }
     private fun action(label:String,click:()->Unit)=Button(this).apply{
-        text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=54
-        gravity=Gravity.CENTER_VERTICAL or Gravity.START;letterSpacing=0.005f;setPadding(18,11,16,11)
+        val scale=uiScaleFactor()
+        text=label;setTextColor(Color.WHITE);textSize=15f*scale;isAllCaps=false;minHeight=(54*scale).toInt()
+        gravity=Gravity.CENTER_VERTICAL or Gravity.START;letterSpacing=0.005f;setPadding((18*scale).toInt(),(11*scale).toInt(),(16*scale).toInt(),(11*scale).toInt())
         stateListAnimator=null
         val edge=Color.argb(125,Color.red(accent),Color.green(accent),Color.blue(accent))
         val shape=GradientDrawable().apply{
@@ -1533,7 +1551,8 @@ class MainActivity : FragmentActivity() {
         setOnClickListener{click()}
     }
     private fun note(value:String)=TextView(this).apply{
-        text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(15,13,15,13)
+        val scale=uiScaleFactor()
+        text=value;textSize=14f*scale;setTextColor(Color.WHITE);setPadding((15*scale).toInt(),(13*scale).toInt(),(15*scale).toInt(),(13*scale).toInt())
         setBackground(GradientDrawable().apply{setColor(Color.argb(245,32,44,51));cornerRadius=18f;setStroke(1,Color.argb(115,Color.red(accent),Color.green(accent),Color.blue(accent)))})
         val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(2,5,2,7);layoutParams=lp
     }
