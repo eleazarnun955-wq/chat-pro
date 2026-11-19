@@ -689,13 +689,17 @@ class MainActivity : FragmentActivity() {
                         }
                     }.show()
                 } else if(canManage) {
-                    val actions=if(isOwner) arrayOf("Hacer administrador","Hacer moderador","Dejar como miembro","Quitar integrante","Cerrar")
+                    val actions=if(isOwner) arrayOf("Transferir propiedad","Hacer administrador","Hacer moderador","Dejar como miembro","Quitar integrante","Cerrar")
                         else arrayOf("Quitar integrante","Cerrar")
                     AlertDialog.Builder(this).setTitle(user.optString("name","Integrante")).setItems(actions){_,choice->
-                        if(isOwner&&choice in 0..2) {
-                            val nextRole=when(choice){0->"admin";1->"moderator";else->"member"}
+                        if(isOwner&&choice==0) {
+                            AlertDialog.Builder(this).setMessage("¿Transferir la propiedad del grupo a ${user.optString("name","este integrante")}? Tu cuenta pasará a ser administradora.")
+                                .setNegativeButton("Cancelar",null)
+                                .setPositiveButton("Transferir"){_,_->api("PATCH","/api/conversations/$conversationId/owner",JSONObject().put("userId",userId),{toast("Propiedad transferida")},{toast(it)})}.show()
+                        } else if(isOwner&&choice in 1..3) {
+                            val nextRole=when(choice){1->"admin";2->"moderator";else->"member"}
                             api("PATCH","/api/conversations/$conversationId/members/$userId/role",JSONObject().put("role",nextRole),{toast("Rol actualizado")},{toast(it)})
-                        } else if((isOwner&&choice==3)||(!isOwner&&choice==0)) {
+                        } else if((isOwner&&choice==4)||(!isOwner&&choice==0)) {
                             AlertDialog.Builder(this).setMessage("¿Quitar a ${user.optString("name","este integrante")} del grupo?")
                                 .setNegativeButton("Cancelar",null)
                                 .setPositiveButton("Quitar"){_,_->api("DELETE","/api/conversations/$conversationId/members/$userId",null,{toast("Integrante retirado");manageConversationMembers(conversationId)},{toast(it)})}.show()
