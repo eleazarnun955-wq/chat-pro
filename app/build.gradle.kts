@@ -12,11 +12,11 @@ android {
     namespace = "com.djsebas.chatpro"
     compileSdk = 35
     defaultConfig {
-        // Independent install: CHAT PRO 2.2.6 coexists with all previous versions.
-        applicationId = "com.djsebas.chatpro.v226"
+        // Independent install: CHAT PRO 2.2.7 coexists with all previous versions.
+        applicationId = "com.djsebas.chatpro.v227"
         minSdk = 24
         targetSdk = 35
-        versionCode = 37
+        versionCode = 38
         versionName = "2.2.6"
         buildConfigField("String", "FIREBASE_API_KEY", "\"$firebaseApiKey\"")
         buildConfigField("String", "FIREBASE_APP_ID", "\"$firebaseAppId\"")
