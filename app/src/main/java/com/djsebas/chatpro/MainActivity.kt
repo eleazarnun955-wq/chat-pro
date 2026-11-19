@@ -740,7 +740,41 @@ class MainActivity : FragmentActivity() {
         val notification=builder.setSmallIcon(android.R.drawable.sym_action_chat).setContentTitle(sender).setContentText(body).setAutoCancel(true).setContentIntent(pending).build()
         try { (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify((conversationId+sender).hashCode(),notification) } catch(_:Exception) {}
     }
-    private fun hashPin(value:String):String = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+    private fun hashPin(value:String,salt:String):String {
+        val saltBytes=android.util.Base64.decode(salt,android.util.Base64.NO_WRAP)
+        val spec=javax.crypto.spec.PBEKeySpec(value.toCharArray(),saltBytes,150000,256)
+        return try {
+            javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec).encoded.joinToString("") { "%02x".format(it) }
+        } finally { spec.clearPassword() }
+    }
+    private fun verifyPin(value:String):Boolean {
+        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+        val now=System.currentTimeMillis()
+        if(prefs.getLong("pin_lock_until",0L)>now)return false
+        val saved=prefs.getString("app_pin","")?:""
+        val salt=prefs.getString("app_pin_salt","")?:""
+        val valid=if(salt.isNotBlank()) {
+            try { hashPin(value,salt)==saved } catch(_:Exception) { false }
+        } else {
+            val legacy=java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            if(saved==value||saved==legacy) {
+                val newSalt=ByteArray(16).also{java.security.SecureRandom().nextBytes(it)}
+                val encoded=android.util.Base64.encodeToString(newSalt,android.util.Base64.NO_WRAP)
+                prefs.edit().putString("app_pin_salt",encoded).putString("app_pin",hashPin(value,encoded)).apply()
+                true
+            } else false
+        }
+        if(valid) prefs.edit().remove("pin_failures").remove("pin_lock_until").apply()
+        else {
+            val failures=prefs.getInt("pin_failures",0)+1
+            val edit=prefs.edit().putInt("pin_failures",failures)
+            if(failures>=5)edit.putLong("pin_lock_until",now+30000L).putInt("pin_failures",0)
+            edit.apply()
+        }
+        return valid
+    }
     private fun showSecurityGate(onUnlock:()->Unit) {
         val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
         val savedPin=prefs.getString("app_pin","")?:""
