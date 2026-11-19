@@ -138,15 +138,16 @@ export async function markConversationRead(conversationId, userId) {
       .upsert(receipts.slice(i, i + 500), { onConflict: "message_id,user_id" });
     fail(error);
   }
-  // Preserve the legacy timestamp for older clients while new clients use message_receipts.
-  const { error: messageError } = await supabase.from("messages").update({ read_at: now })
-    .eq("conversation_id", conversationId).neq("sender_id", userId).is("read_at", null);
-  fail(messageError);
   return now;
 }
-export async function listMessages(conversationId, userId) {
-  const { data, error } = await supabase.from("messages").select("*,profiles!messages_sender_id_fkey(*)").eq("conversation_id",conversationId).order("created_at",{ascending:true}).limit(500); fail(error);
-  const ids=(data||[]).map(m=>m.id);
+export async function listMessages(conversationId, userId, before=null, limit=500) {
+  let query = supabase.from("messages").select("*,profiles!messages_sender_id_fkey(*)")
+    .eq("conversation_id",conversationId).order("created_at",{ascending:false}).limit(Math.max(1,Math.min(500,Number(limit)||500)));
+  if(before) query=query.lt("created_at",before);
+  const { data, error } = await query; fail(error);
+  // Return the newest page in chronological order; older pages use the before cursor.
+  const messages=(data||[]).reverse();
+  const ids=messages.map(m=>m.id);
   const [{data:reactions,error:re},{data:hidden,error:he},{data:receipts,error:receiptError}] = await Promise.all([
     ids.length ? supabase.from("message_reactions").select("message_id,user_id,reaction").in("message_id",ids) : Promise.resolve({data:[],error:null}),
     userId ? supabase.from("message_hidden_for").select("message_id").eq("user_id",userId).in("message_id",ids) : Promise.resolve({data:[],error:null}),
