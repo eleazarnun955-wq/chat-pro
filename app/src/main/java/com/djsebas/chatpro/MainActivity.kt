@@ -1151,6 +1151,30 @@ class MainActivity : FragmentActivity() {
         AlertDialog.Builder(this).setTitle("Acciones del mensaje")
             .setItems(options.toTypedArray()){_,which->actions[which].invoke()}.show()
     }
+    private fun attachMessageLongPress(view:android.view.View,obj:JSONObject) {
+        view.setOnLongClickListener {
+            showMessageContextMenu(obj)
+            true
+        }
+        if(view is android.view.ViewGroup) {
+            for(i in 0 until view.childCount) attachMessageLongPress(view.getChildAt(i),obj)
+        }
+    }
+    private fun showMessageContextMenu(obj:JSONObject) {
+        val messageId=obj.optString("id")
+        if(messageId.isBlank())return
+        val user=obj.optJSONObject("user")?:JSONObject()
+        val author=user.optString("name","Usuario")
+        val authorId=user.optString("id")
+        val mine=authorId.isNotBlank() && authorId==me.optString("id")
+        val options=mutableListOf("😊 Reaccionar")
+        if(!mine && authorId.isNotBlank()) options.add("💬 Enviar mensaje privado")
+        AlertDialog.Builder(this).setTitle("Mensaje de $author")
+            .setItems(options.toTypedArray()){_,which->
+                if(which==0) showMessageReactions(messageId)
+                else if(which==1 && authorId.isNotBlank() && authorId!=me.optString("id")) createConversation(authorId,author,false)
+            }.setNegativeButton("Cancelar",null).show()
+    }
     private fun renderConversationMessage(obj:JSONObject) {
         if(obj.optString("deletedAt").isNotBlank()) {
             content.addView(note("🚫 Este mensaje fue eliminado para todos"))
@@ -1211,12 +1235,9 @@ class MainActivity : FragmentActivity() {
         if(summary.isNotBlank())card.addView(TextView(this).apply{this.text="Reacciones: $summary";textSize=13f;setTextColor(Color.WHITE)})
         val messageId=obj.optString("id")
         if(messageId.isNotBlank()){
-            // Reaccionar se hace con un botón independiente y visible.
-            // Se elimina el gesto de pulsación larga para evitar conflictos táctiles con el contenedor.
-            card.addView(action("😊 Reaccionar"){showMessageReactions(messageId)})
-            card.addView(action("⋯ Administrar mensaje"){showMessageActions(obj,mine)})
-            card.setOnClickListener{showTappedMessageActions(obj)}
-            card.contentDescription="Usa Reaccionar para añadir un emoji; Administrar mensaje para eliminar"
+            // Mantener presionado abre solo Reaccionar o Mensaje privado. No incluye borrar.
+            attachMessageLongPress(card,obj)
+            card.contentDescription="Mantén presionado para reaccionar o enviar mensaje privado"
         }
     }
     private fun editMessageDialog(messageId:String,original:String) {
