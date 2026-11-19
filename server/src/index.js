@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { Server } from "socket.io";
 import multer from "multer";
 import { resolveUploadExtension, isSupportedUpload, uploadMimeForExtension } from "./upload-policy.js";
-import { randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomUUID, scryptSync, timingSafeEqual, createHmac } from "node:crypto";
 import * as db from "./db.js";
 
 const app=express(), server=http.createServer(app);
@@ -45,6 +45,22 @@ const auth=asyncRoute(async(req,res,next)=>{
  req.user=user;req.token=token;next();
 });
 app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.2.0",database:"supabase",features:["accounts","direct-messages","groups","media","history","profiles","statuses-24h"]}));
+app.get("/api/calls/ice-config",auth,asyncRoute(async(q,r)=>{
+ const iceServers=[
+  {urls:"stun:stun.l.google.com:19302"},
+  {urls:"stun:stun.cloudflare.com:3478"}
+ ];
+ const turnUrls=(process.env.TURN_URLS||"").split(",").map(x=>x.trim()).filter(Boolean);
+ const sharedSecret=process.env.TURN_SHARED_SECRET||"";
+ if(turnUrls.length&&sharedSecret){
+  const expires=Math.floor(Date.now()/1000)+3600;
+  const username=expires+":"+q.user.id;
+  const credential=createHmac("sha1",sharedSecret).update(username).digest("base64");
+  for(const url of turnUrls)iceServers.push({urls:url,username,credential});
+ }
+ r.set("Cache-Control","no-store").json({iceServers,turnAvailable:iceServers.some(x=>String(x.urls).startsWith("turn"))});
+}));
+
 
 app.post("/api/register",authRateLimit("register"),asyncRoute(async(q,r)=>{
  const name=clean(q.body?.name,40),email=clean(q.body?.email,254).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
