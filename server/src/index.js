@@ -86,7 +86,7 @@ const auth=asyncRoute(async(req,res,next)=>{
  if(!user)return res.status(401).json({error:"Inicia sesión para continuar"});
  req.user=user;req.token=token;next();
 });
-app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.2.0",database:"supabase",features:["accounts","direct-messages","groups","media","history","profiles","statuses-24h"]}));
+app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.2.0",database:"supabase",features:["accounts","direct-messages","groups","group-roles","media","history-pagination","per-user-read-receipts","profiles","statuses-24h","fcm-push","turn-ice-config"]}));
 app.get("/api/calls/ice-config",auth,asyncRoute(async(q,r)=>{
  const iceServers=[
   {urls:"stun:stun.l.google.com:19302"},
