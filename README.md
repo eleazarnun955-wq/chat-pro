@@ -35,7 +35,7 @@ El backend genera credenciales temporales de una hora por usuario. Sin estas var
 
 ## Migraciones de Supabase
 Aplicar en orden las migraciones SQL del proyecto, incluida:
-- `supabase/migrations/20261118190000_chat_pro_2_2_0_foundation.sql`
+- `supabase/migrations/20261119032502_chat_pro_2_2_0_foundation.sql`
 
 Esta migración crea tablas de tokens push y recibos individuales, y habilita roles de grupo. No desplegar el backend 2.2.0 antes de aplicar la migración correspondiente.
 
