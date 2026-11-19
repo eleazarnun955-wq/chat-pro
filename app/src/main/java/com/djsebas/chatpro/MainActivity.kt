@@ -1103,6 +1103,16 @@ class MainActivity : FragmentActivity() {
             }
         }
         if(media!=null) {
+            options.add("Abrir / reproducir archivo")
+            actions.add {
+                val mime=media.optString("mimeType").lowercase()
+                when {
+                    mime.startsWith("image/")->showImage(media)
+                    mime.startsWith("video/")->playVideo(media)
+                    mime.startsWith("audio/")->playAudio(media)
+                    else->downloadMedia(media)
+                }
+            }
             options.add("Compartir archivo")
             actions.add {
                 val path=media.optString("downloadPath")
@@ -1189,10 +1199,10 @@ class MainActivity : FragmentActivity() {
                     val preview=ImageView(this).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER;maxHeight=(220*resources.displayMetrics.density).toInt();setBackgroundColor(Color.argb(55,255,255,255));setOnClickListener{showTappedMessageActions(obj)}}
                     card.addView(preview,LinearLayout.LayoutParams(-1,(220*resources.displayMetrics.density).toInt()))
                     loadImagePreview(media,preview)
-                    card.addView(action("Ver imagen: $mediaName"){showImage(media)})
+                    card.addView(action("Ver imagen: $mediaName"){showTappedMessageActions(obj)})
                 }
-                mime.startsWith("video/") -> card.addView(action("▶  Reproducir video: $mediaName"){playVideo(media)})
-                mime.startsWith("audio/") -> card.addView(action("▶  Reproducir música o audio: $mediaName"){playAudio(media)})
+                mime.startsWith("video/") -> card.addView(action("▶  Reproducir video: $mediaName"){showTappedMessageActions(obj)})
+                mime.startsWith("audio/") -> card.addView(action("▶  Reproducir música o audio: $mediaName"){showTappedMessageActions(obj)})
                 else -> card.addView(note("📎 Archivo: $mediaName"))
             }
             card.contentDescription="Toca para compartir o descargar $mediaName"
