@@ -1078,15 +1078,13 @@ class MainActivity : FragmentActivity() {
         val user=obj.optJSONObject("user")?:JSONObject()
         val author=user.optString("name","Usuario")
         val authorId=user.optString("id")
-        val options=mutableListOf("😊 Reaccionar con emojis","🗑 Eliminar mensaje")
+        val options=mutableListOf("🗑 Eliminar mensaje")
         if(!mine&&authorId.isNotBlank())options.add("✉ Enviar mensaje privado a $author")
-        AlertDialog.Builder(this).setTitle("Mensaje de $author")
+        AlertDialog.Builder(this).setTitle("Administrar mensaje de $author")
             .setItems(options.toTypedArray()){_,which->
-                // Acciones por índice fijo: reaccionar jamás debe invocar el flujo de borrado.
                 when(which) {
-                    0 -> showMessageReactions(messageId)
-                    1 -> showMessageDeleteOptions(messageId,mine)
-                    2 -> if(authorId.isNotBlank()&&authorId!=me.optString("id"))createConversation(authorId,author,false)
+                    0 -> showMessageDeleteOptions(messageId,mine)
+                    1 -> if(authorId.isNotBlank()&&authorId!=me.optString("id"))createConversation(authorId,author,false)
                 }
             }.show()
     }
@@ -1213,9 +1211,12 @@ class MainActivity : FragmentActivity() {
         if(summary.isNotBlank())card.addView(TextView(this).apply{this.text="Reacciones: $summary";textSize=13f;setTextColor(Color.WHITE)})
         val messageId=obj.optString("id")
         if(messageId.isNotBlank()){
+            // Mantener presionado abre DIRECTAMENTE el selector de emojis.
+            // El flujo de reacción queda físicamente separado del de eliminación.
+            card.setOnLongClickListener{showMessageReactions(messageId);true}
+            card.addView(action("⋯ Administrar mensaje"){showMessageActions(obj,mine)})
             card.setOnClickListener{showTappedMessageActions(obj)}
-            card.setOnLongClickListener{showMessageActions(obj,mine);true}
-            card.contentDescription="Toca para compartir o descargar; mantén presionado para reaccionar o administrar el mensaje"
+            card.contentDescription="Mantén presionado para reaccionar; usa Administrar mensaje para eliminar"
         }
     }
     private fun editMessageDialog(messageId:String,original:String) {
