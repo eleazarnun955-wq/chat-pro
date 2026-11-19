@@ -362,12 +362,28 @@ app.delete("/api/conversations/:id/members/:userId",auth,asyncRoute(async(q,r)=>
  io.to(c.id).emit("conversation:member_removed",{conversationId:c.id,userId:targetId,removedBy:q.user.id});
  r.json({ok:true});
 }));
+app.patch("/api/conversations/:id/owner",auth,asyncRoute(async(q,r)=>{
+ const c=await db.getConversation(q.params.id);
+ if(!c||!["group","room"].includes(c.type)||await memberRole(c.id,q.user.id)!=="owner")return r.sendStatus(403);
+ const nextOwner=clean(q.body?.userId,80);
+ if(!nextOwner||nextOwner===q.user.id||!await member(c.id,nextOwner))return r.status(400).json({error:"Selecciona otro integrante del grupo"});
+ const {error:promoteError}=await db.supabase.from("conversation_members").update({role:"owner"})
+  .eq("conversation_id",c.id).eq("user_id",nextOwner);
+ if(promoteError)throw promoteError;
+ const {error:demoteError}=await db.supabase.from("conversation_members").update({role:"admin"})
+  .eq("conversation_id",c.id).eq("user_id",q.user.id);
+ if(demoteError)throw demoteError;
+ io.to(c.id).emit("conversation:owner_changed",{conversationId:c.id,previousOwner:q.user.id,newOwner:nextOwner});
+ r.json({ok:true,newOwnerId:nextOwner});
+}));
 app.patch("/api/conversations/:id/members/:userId/role",auth,asyncRoute(async(q,r)=>{
  const c=await db.getConversation(q.params.id);
  if(!c||!["group","room"].includes(c.type)||await memberRole(c.id,q.user.id)!=="owner")return r.sendStatus(403);
  const targetId=clean(q.params.userId,80),nextRole=q.body?.role;
  if(!["admin","moderator","member"].includes(nextRole))return r.status(400).json({error:"Rol no válido"});
- if(!await member(c.id,targetId))return r.sendStatus(404);
+ const targetRole=await memberRole(c.id,targetId);
+ if(!targetRole)return r.sendStatus(404);
+ if(targetRole==="owner")return r.status(409).json({error:"Transfiere la propiedad antes de cambiar el rol del propietario"});
  const {error}=await db.supabase.from("conversation_members").update({role:nextRole})
   .eq("conversation_id",c.id).eq("user_id",targetId);
  if(error)throw error;
