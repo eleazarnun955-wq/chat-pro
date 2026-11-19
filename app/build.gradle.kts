@@ -2,7 +2,13 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+val firebaseApiKey = System.getenv("FIREBASE_API_KEY") ?: ""
+val firebaseAppId = System.getenv("FIREBASE_APP_ID") ?: ""
+val firebaseProjectId = System.getenv("FIREBASE_PROJECT_ID") ?: ""
+val firebaseSenderId = System.getenv("FIREBASE_SENDER_ID") ?: ""
+
 android {
+    buildFeatures { buildConfig = true }
     namespace = "com.djsebas.chatpro"
     compileSdk = 35
     defaultConfig {
@@ -12,6 +18,10 @@ android {
         targetSdk = 35
         versionCode = 31
         versionName = "2.2.0"
+        buildConfigField("String", "FIREBASE_API_KEY", "\"$firebaseApiKey\"")
+        buildConfigField("String", "FIREBASE_APP_ID", "\"$firebaseAppId\"")
+        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"$firebaseProjectId\"")
+        buildConfigField("String", "FIREBASE_SENDER_ID", "\"$firebaseSenderId\"")
     }
     signingConfigs {
         create("release") {
@@ -36,6 +46,8 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 dependencies {
+    implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
+    implementation("com.google.firebase:firebase-messaging")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("io.socket:socket.io-client:2.1.1") { exclude(group = "org.json", module = "json") }
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
