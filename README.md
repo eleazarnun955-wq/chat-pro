@@ -41,7 +41,7 @@ Aplicar en orden las migraciones SQL del proyecto, incluida:
 Esta migración crea tablas de tokens push y recibos individuales, y habilita roles de grupo. No desplegar el backend 2.2.0 antes de aplicar la migración correspondiente.
 
 ## Backend
-- Render configurado en la app: `https://chat-pro-server-qhjw.onrender.com`.
+- Render configurado en la app: `https://chat-pro-server-2-2-0.onrender.com`.
 - Supabase: PostgreSQL y Storage.
 - Las claves privadas de Supabase permanecen únicamente en el servidor.
 - Si faltan `SUPABASE_URL` o `SUPABASE_SECRET_KEY`, el proceso HTTP permanece activo y `/health` informa `ready: false`; las rutas de datos responden HTTP 503 hasta configurar ambas variables. No se usan credenciales de prueba.
