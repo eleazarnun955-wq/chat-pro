@@ -1082,10 +1082,11 @@ class MainActivity : FragmentActivity() {
         if(!mine&&authorId.isNotBlank())options.add("✉ Enviar mensaje privado a $author")
         AlertDialog.Builder(this).setTitle("Mensaje de $author")
             .setItems(options.toTypedArray()){_,which->
-                when(options[which]) {
-                    "😊 Reaccionar con emojis"->showMessageReactions(messageId)
-                    "🗑 Eliminar mensaje"->showMessageDeleteOptions(messageId,mine)
-                    else->if(authorId.isNotBlank()&&authorId!=me.optString("id"))createConversation(authorId,author,false)
+                // Acciones por índice fijo: reaccionar jamás debe invocar el flujo de borrado.
+                when(which) {
+                    0 -> showMessageReactions(messageId)
+                    1 -> showMessageDeleteOptions(messageId,mine)
+                    2 -> if(authorId.isNotBlank()&&authorId!=me.optString("id"))createConversation(authorId,author,false)
                 }
             }.show()
     }
@@ -1239,10 +1240,39 @@ class MainActivity : FragmentActivity() {
         }.show()
     }
     private fun showMessageReactions(messageId:String) {
-        val options=arrayOf("👍","❤️","😂","🔥","👏","😮","😢","🎉")
-        AlertDialog.Builder(this).setTitle("Reaccionar al mensaje").setItems(options){_,which->
-            api("POST","/api/messages/$messageId/reactions",JSONObject().put("reaction",options[which]),{refreshConversationMessages()},{toast(it)})
-        }.show()
+        // Selector explícito de reacciones. Ningún botón de este cuadro llama a borrar.
+        val emojis=listOf("👍","❤️","😂","🔥","👏","😮","😢","🎉")
+        val grid=android.widget.GridLayout(this).apply {
+            columnCount=4
+            setPadding(18,12,18,12)
+        }
+        val dialog=AlertDialog.Builder(this).setTitle("Elige una reacción").setView(grid)
+            .setNegativeButton("Cancelar",null).create()
+        emojis.forEach { emoji ->
+            val button=TextView(this).apply {
+                text=emoji
+                textSize=30f
+                gravity=Gravity.CENTER
+                setPadding(12,12,12,12)
+                contentDescription="Reaccionar con $emoji"
+                setOnClickListener {
+                    isEnabled=false
+                    api("POST","/api/messages/$messageId/reactions",JSONObject().put("reaction",emoji),{
+                        dialog.dismiss()
+                        refreshConversationMessages()
+                    },{error->
+                        isEnabled=true
+                        toast("No se pudo guardar la reacción: $error")
+                    })
+                }
+            }
+            grid.addView(button,android.widget.GridLayout.LayoutParams().apply {
+                width=0
+                height=(58*resources.displayMetrics.density).toInt()
+                columnSpec=android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED,1f)
+            })
+        }
+        dialog.show()
     }
     private fun refreshConversationMessages() {
         val id=currentConversation
