@@ -185,7 +185,7 @@ class MainActivity : FragmentActivity() {
                 .putString("token_cipher",android.util.Base64.encodeToString(encrypted,android.util.Base64.NO_WRAP))
                 .apply()
         } catch(error:Exception) {
-            toast("No se pudo proteger la sesión en este teléfono")
+            runOnUiThread { toast("No se pudo proteger la sesión en este teléfono") }
         }
     }
     private fun readSecureToken():String {
