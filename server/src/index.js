@@ -11,12 +11,24 @@ import * as db from "./db.js";
 
 const app=express(), server=http.createServer(app);
 const PORT=Number(process.env.PORT||10000);
-const MAX_UPLOAD_BYTES=Number(process.env.MAX_UPLOAD_BYTES||512*1024*1024);
+const MAX_UPLOAD_BYTES=Number(process.env.MAX_UPLOAD_BYTES||100*1024*1024);
 const uploadDir=process.env.UPLOAD_DIR||path.resolve("uploads");
 fs.mkdirSync(uploadDir,{recursive:true});
 const clean=(s,max=80)=>typeof s==="string"?s.trim().slice(0,max):"";
 const member=async (conversationId,uid)=>db.isMember(conversationId,uid);
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+// Per-process authentication throttling. Production multi-instance deployments should
+// additionally enforce a shared limit at the edge or in a shared store.
+const authAttempts=new Map();
+function authRateLimit(bucket,limit=8,windowMs=15*60*1000){
+ return (req,res,next)=>{
+  const key=bucket+":"+String(req.ip||req.socket.remoteAddress||"unknown");
+  const now=Date.now(),entry=authAttempts.get(key);
+  if(!entry||now-entry.start>=windowMs){authAttempts.set(key,{start:now,count:1});return next();}
+  if(entry.count>=limit)return res.status(429).json({error:"Demasiados intentos. Espera 15 minutos e inténtalo de nuevo."});
+  entry.count++;next();
+ };
+}
 app.use(cors({origin:process.env.CORS_ORIGIN?.split(",")||"*"}));
 app.use(express.json({limit:"2mb"}));
 const auth=asyncRoute(async(req,res,next)=>{
@@ -27,7 +39,7 @@ const auth=asyncRoute(async(req,res,next)=>{
 });
 app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.2.0",database:"supabase",features:["accounts","direct-messages","groups","media","history","profiles","statuses-24h"]}));
 
-app.post("/api/register",asyncRoute(async(q,r)=>{
+app.post("/api/register",authRateLimit("register"),asyncRoute(async(q,r)=>{
  const name=clean(q.body?.name,40),email=clean(q.body?.email,254).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
  if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)||password.length<8||password.length>128)return r.status(400).json({error:"Ingresa un nombre, un correo válido y una contraseña de 8 a 128 caracteres"});
  if(await db.findUserByEmail(email))return r.status(409).json({error:"Ese correo ya está registrado"});
@@ -38,7 +50,7 @@ app.post("/api/register",asyncRoute(async(q,r)=>{
  const token=randomUUID()+randomUUID();await db.createSession(token,id);
  r.status(201).json({token,user:db.publicUser(profile)});
 }));
-app.post("/api/login",asyncRoute(async(q,r)=>{
+app.post("/api/login",authRateLimit("login"),asyncRoute(async(q,r)=>{
  const email=clean(q.body?.email,254).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
  const u=await db.findUserByEmail(email);
  if(!u||!u.salt||!u.hash)return r.status(401).json({error:"Correo o contraseña incorrectos"});
