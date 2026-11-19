@@ -13,7 +13,7 @@ android {
     compileSdk = 35
     defaultConfig {
         // Unique package so the fixed 2.2.7 build installs beside prior CHAT PRO builds.
-        applicationId = "com.djsebas.chatpro.v227fix"
+        applicationId = "com.eleazarcompany.chatpro.v227standalone"
         minSdk = 24
         targetSdk = 35
         versionCode = 39
