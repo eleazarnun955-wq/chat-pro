@@ -801,7 +801,7 @@ class MainActivity : FragmentActivity() {
         AlertDialog.Builder(this).setTitle("CHAT PRO bloqueado").setMessage("Introduce tu PIN para continuar.").setView(pin)
             .setCancelable(false).setPositiveButton("Desbloquear"){_,_->
                 val saved=getSharedPreferences("chatpro",MODE_PRIVATE).getString("app_pin","")?:""
-                if(hashPin(pin.text.toString())==saved)onUnlock() else { toast("PIN incorrecto");showPinGate(onUnlock) }
+                if(verifyPin(pin.text.toString()))onUnlock() else { toast(if(getSharedPreferences("chatpro",MODE_PRIVATE).getLong("pin_lock_until",0L)>System.currentTimeMillis())"Demasiados intentos. Espera 30 segundos." else "PIN incorrecto");showPinGate(onUnlock) }
             }.show()
     }
     private fun showPinSettings() {
@@ -811,7 +811,7 @@ class MainActivity : FragmentActivity() {
             AlertDialog.Builder(this).setTitle("Bloqueo con PIN").setMessage("El bloqueo está activado.")
                 .setItems(arrayOf("Cambiar PIN","Desactivar bloqueo")){_,which->
                     if(which==0) promptNewPin() else AlertDialog.Builder(this).setTitle("Desactivar bloqueo").setMessage("¿Quitar el PIN de este teléfono?")
-                        .setNegativeButton("Cancelar",null).setPositiveButton("Desactivar"){_,_->prefs.edit().remove("app_pin").remove("biometric_enabled").apply();toast("Bloqueo desactivado")}.show()
+                        .setNegativeButton("Cancelar",null).setPositiveButton("Desactivar"){_,_->prefs.edit().remove("app_pin").remove("app_pin_salt").remove("pin_failures").remove("pin_lock_until").remove("biometric_enabled").apply();toast("Bloqueo desactivado")}.show()
                 }.show()
         } else promptNewPin()
     }
@@ -847,7 +847,11 @@ class MainActivity : FragmentActivity() {
             .setView(box).setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->
                 val p=pin.text.toString()
                 if(!p.matches(Regex("[0-9]{4,8}"))||p!=confirm.text.toString()) { toast("El PIN debe tener 4 a 8 dígitos y coincidir");return@setPositiveButton }
-                getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("app_pin",p).apply()
+                val saltBytes=ByteArray(16).also{java.security.SecureRandom().nextBytes(it)}
+                val salt=android.util.Base64.encodeToString(saltBytes,android.util.Base64.NO_WRAP)
+                getSharedPreferences("chatpro",MODE_PRIVATE).edit()
+                    .putString("app_pin_salt",salt).putString("app_pin",hashPin(p,salt))
+                    .remove("pin_failures").remove("pin_lock_until").apply()
                 toast("Bloqueo con PIN activado. Se solicitará al abrir CHAT PRO.")
             }.show()
     }
