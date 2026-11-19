@@ -151,15 +151,24 @@ export async function listMessages(conversationId, userId, before=null, limit=50
   const [{data:reactions,error:re},{data:hidden,error:he},{data:receipts,error:receiptError}] = await Promise.all([
     ids.length ? supabase.from("message_reactions").select("message_id,user_id,reaction").in("message_id",ids) : Promise.resolve({data:[],error:null}),
     userId ? supabase.from("message_hidden_for").select("message_id").eq("user_id",userId).in("message_id",ids) : Promise.resolve({data:[],error:null}),
-    userId && ids.length ? supabase.from("message_receipts").select("message_id,delivered_at,read_at").eq("user_id",userId).in("message_id",ids) : Promise.resolve({data:[],error:null})
+    ids.length ? supabase.from("message_receipts").select("message_id,user_id,delivered_at,read_at").in("message_id",ids) : Promise.resolve({data:[],error:null})
   ]);
   fail(re); fail(he); fail(receiptError);
   const hiddenIds=new Set((hidden||[]).map(x=>x.message_id));
-  const receiptByMessage=new Map((receipts||[]).map(x=>[x.message_id,x]));
+  const receiptsByMessage=new Map();
+  for(const receipt of receipts||[]){
+    const list=receiptsByMessage.get(receipt.message_id)||[];
+    list.push(receipt);receiptsByMessage.set(receipt.message_id,list);
+  }
   return messages.filter(m=>!hiddenIds.has(m.id)).map(m=>{
-    const receipt=receiptByMessage.get(m.id);
+    const allReceipts=receiptsByMessage.get(m.id)||[];
+    const mine=allReceipts.find(x=>x.user_id===userId);
+    const senderReceipts=allReceipts.filter(x=>x.user_id!==m.sender_id);
+    const latest=(field)=>senderReceipts.map(x=>x[field]).filter(Boolean).sort().at(-1)||null;
     return { id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at,
-      deliveredAt:receipt?.delivered_at||null, readAt:receipt?.read_at||null,
+      deliveredAt:m.sender_id===userId?latest("delivered_at"):(mine?.delivered_at||null),
+      readAt:m.sender_id===userId?latest("read_at"):(mine?.read_at||null),
+      receipts:allReceipts.map(x=>({userId:x.user_id,deliveredAt:x.delivered_at,readAt:x.read_at})),
       deletedAt:m.deleted_at||null, deletedBy:m.deleted_by||null,
       reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) };
   });
@@ -234,10 +243,23 @@ export async function toggleMessageReaction(messageId,userId,reaction) {
   const { data,error } = await supabase.from("message_reactions").select("user_id,reaction").eq("message_id",messageId); fail(error); return data||[];
 }
 export async function markConversationDelivered(conversationId,userId) {
-  const { error } = await supabase.from("messages").update({delivered_at:new Date().toISOString()}).eq("conversation_id",conversationId).neq("sender_id",userId).is("delivered_at",null); fail(error);
+  const now=new Date().toISOString();
+  const {data:rows,error}=await supabase.from("messages").select("id")
+    .eq("conversation_id",conversationId).neq("sender_id",userId).is("deleted_at",null);
+  fail(error);
+  const receipts=(rows||[]).map(row=>({message_id:row.id,user_id:userId,delivered_at:now}));
+  for(let i=0;i<receipts.length;i+=500){
+    const {error:writeError}=await supabase.from("message_receipts")
+      .upsert(receipts.slice(i,i+500),{onConflict:"message_id,user_id"});
+    fail(writeError);
+  }
 }
-export async function markMessageDelivered(messageId,conversationId,senderId) {
-  const { error } = await supabase.from("messages").update({delivered_at:new Date().toISOString()}).eq("id",messageId).eq("conversation_id",conversationId).neq("sender_id",senderId).is("delivered_at",null); fail(error);
+export async function markMessageDelivered(messageId,conversationId,recipientId) {
+  const now=new Date().toISOString();
+  const {error}=await supabase.from("message_receipts").upsert({
+    message_id:messageId,user_id:recipientId,delivered_at:now
+  },{onConflict:"message_id,user_id"});
+  fail(error);
 }
 export async function updateLastSeen(userId) {
   const { error } = await supabase.from("profiles").update({last_seen_at:new Date().toISOString()}).eq("id",userId); fail(error);
