@@ -10,6 +10,7 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application android:name=".ChatProApplication" android:allowBackup="false" android:label="CHAT PRO 2.2.3" android:icon="@drawable/chat_pro_icon" android:roundIcon="@drawable/chat_pro_icon"
         android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false">
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/chatpro_file_paths" /></provider>
         <service android:name=".ChatProMessagingService" android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
