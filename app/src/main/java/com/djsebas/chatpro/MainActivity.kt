@@ -1211,12 +1211,12 @@ class MainActivity : FragmentActivity() {
         if(summary.isNotBlank())card.addView(TextView(this).apply{this.text="Reacciones: $summary";textSize=13f;setTextColor(Color.WHITE)})
         val messageId=obj.optString("id")
         if(messageId.isNotBlank()){
-            // Mantener presionado abre DIRECTAMENTE el selector de emojis.
-            // El flujo de reacción queda físicamente separado del de eliminación.
-            card.setOnLongClickListener{showMessageReactions(messageId);true}
+            // Reaccionar se hace con un botón independiente y visible.
+            // Se elimina el gesto de pulsación larga para evitar conflictos táctiles con el contenedor.
+            card.addView(action("😊 Reaccionar"){showMessageReactions(messageId)})
             card.addView(action("⋯ Administrar mensaje"){showMessageActions(obj,mine)})
             card.setOnClickListener{showTappedMessageActions(obj)}
-            card.contentDescription="Mantén presionado para reaccionar; usa Administrar mensaje para eliminar"
+            card.contentDescription="Usa Reaccionar para añadir un emoji; Administrar mensaje para eliminar"
         }
     }
     private fun editMessageDialog(messageId:String,original:String) {
