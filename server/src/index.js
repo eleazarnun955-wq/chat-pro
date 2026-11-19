@@ -246,6 +246,19 @@ app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
  if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
  r.json({messages:await db.listMessages(q.params.id,q.user.id)});
 }));
+app.get("/api/conversations/:id/members",auth,asyncRoute(async(q,r)=>{
+ const c=await db.getConversation(q.params.id);
+ if(!c||!["group","room"].includes(c.type)||!await member(c.id,q.user.id))return r.sendStatus(404);
+ const {data:rows,error}=await db.supabase.from("conversation_members").select("user_id,role,joined_at")
+  .eq("conversation_id",c.id).order("joined_at",{ascending:true});
+ if(error)throw error;
+ const members=[];
+ for(const row of rows||[]){
+  const profile=await db.findUserById(row.user_id);
+  if(profile)members.push({user:db.publicUser(profile),role:row.role||"member",joinedAt:row.joined_at||null});
+ }
+ r.json({members,canManage:isGroupManager(await memberRole(c.id,q.user.id)),isOwner:await memberRole(c.id,q.user.id)==="owner"});
+}));
 app.post("/api/conversations/:id/members",auth,asyncRoute(async(q,r)=>{
  const c=await db.getConversation(q.params.id);
  const role=c?await memberRole(c.id,q.user.id):null;
