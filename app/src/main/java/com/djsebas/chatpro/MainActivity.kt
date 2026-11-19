@@ -1105,13 +1105,35 @@ class MainActivity : FragmentActivity() {
         if(media!=null) {
             options.add("Compartir archivo")
             actions.add {
-                val name=media.optString("name","Archivo")
-                val author=obj.optJSONObject("user")?.optString("name","Usuario")?:"Usuario"
-                val share=Intent(Intent.ACTION_SEND).apply {
-                    type="text/plain"
-                    putExtra(Intent.EXTRA_TEXT,"$author compartió contigo: $name")
+                val path=media.optString("downloadPath")
+                if(!path.startsWith("/api/uploads/")) {
+                    toast("Este archivo no tiene una ruta válida para compartir")
+                } else {
+                    toast("Preparando archivo para compartir…")
+                    Thread {
+                        try {
+                            val request=Request.Builder().url(baseUrl+path).header("Authorization","Bearer "+token).build()
+                            http.newCall(request).execute().use { response ->
+                                if(!response.isSuccessful)throw Exception("No se pudo descargar el archivo")
+                                val bytes=response.body?.bytes()?:throw Exception("Archivo vacío")
+                                val folder=File(cacheDir,"chatpro_share").apply{mkdirs()}
+                                val safeName=media.optString("name","archivo").substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"),"_").take(100).ifBlank{"archivo"}
+                                val file=File(folder,safeName)
+                                file.writeBytes(bytes)
+                                val uri=androidx.core.content.FileProvider.getUriForFile(this,"$packageName.fileprovider",file)
+                                val share=Intent(Intent.ACTION_SEND).apply {
+                                    type=media.optString("mimeType").ifBlank{"application/octet-stream"}
+                                    putExtra(Intent.EXTRA_STREAM,uri)
+                                    clipData=android.content.ClipData.newUri(contentResolver,safeName,uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                runOnUiThread{startActivity(Intent.createChooser(share,"Compartir archivo"))}
+                            }
+                        } catch(error:Exception) {
+                            runOnUiThread{toast("No se pudo compartir: ${error.message}")}
+                        }
+                    }.start()
                 }
-                startActivity(Intent.createChooser(share,"Compartir archivo"))
             }
             options.add("Descargar archivo")
             actions.add{downloadMedia(media)}
