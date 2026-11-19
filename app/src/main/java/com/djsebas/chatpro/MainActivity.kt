@@ -493,12 +493,31 @@ class MainActivity : FragmentActivity() {
         root.addView(action("🧹 Limpiar historial"){confirmClearConversationHistory(id)})
         applyWallpaper("chat_wallpaper_"+id)
         api("GET","/api/conversations/$id/messages",null,{data->
-            content.removeAllViews()
             val arr=data.optJSONArray("messages")?:JSONArray()
-            for(i in 0 until arr.length())renderConversationMessage(arr.optJSONObject(i)?:continue)
+            val messages=(0 until arr.length()).mapNotNull{arr.optJSONObject(it)}
+            showConversationHistory(id,messages,messages.size>=500)
             api("POST","/api/conversations/$id/read",JSONObject(),{},{})
             header.text="Conectando al chat en tiempo real…";connectConversation()
         },{header.text=it})
+    }
+    private fun showConversationHistory(conversationId:String,messages:List<JSONObject>,canLoadOlder:Boolean) {
+        content.removeAllViews()
+        if(canLoadOlder&&messages.isNotEmpty()) {
+            content.addView(action("⬆ Cargar mensajes anteriores") {
+                val cursor=messages.first().optString("createdAt")
+                api("GET","/api/conversations/$conversationId/messages?before="+Uri.encode(cursor)+"&limit=500",null,{data->
+                    val arr=data.optJSONArray("messages")?:JSONArray()
+                    val older=(0 until arr.length()).mapNotNull{arr.optJSONObject(it)}
+                    if(older.isEmpty()) {
+                        toast("Ya llegaste al inicio de la conversación")
+                        showConversationHistory(conversationId,messages,false)
+                    } else {
+                        showConversationHistory(conversationId,older+messages,older.size>=500)
+                    }
+                },{toast("No se pudieron cargar mensajes anteriores: $it")})
+            })
+        }
+        messages.forEach{renderConversationMessage(it)}
     }
     private fun showSavedMessages() {
         api("GET","/api/bookmarks",null,{data->
