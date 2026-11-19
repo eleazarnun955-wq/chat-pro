@@ -566,27 +566,16 @@ class MainActivity : FragmentActivity() {
         }
         frame(title,"Conversación protegida · CHAT PRO")
         header.text="Cargando historial…"
+        val menuRow=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.END}
+        menuRow.addView(action("⋮  Opciones"){showConversationOptions(id,conversationType)},LinearLayout.LayoutParams(-2,44))
+        root.addView(menuRow,root.indexOfChild(header)+1)
         composer=field("Escribe un mensaje")
-        val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        row.addView(action("＋"){uploadMode="chat";chooseFile()},LinearLayout.LayoutParams(54,52))
+        val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         row.addView(composer,LinearLayout.LayoutParams(0,52,1f))
-        row.addView(action("🎙 Voz"){toggleVoiceRecording()},LinearLayout.LayoutParams(72,52))
-        row.addView(action("Enviar"){sendMessage()},LinearLayout.LayoutParams(78,52))
+        row.addView(action("🎙"){toggleVoiceRecording()},LinearLayout.LayoutParams(48,52))
+        row.addView(action("📎"){uploadMode="chat";chooseFile()},LinearLayout.LayoutParams(48,52))
+        row.addView(action("➤"){sendMessage()},LinearLayout.LayoutParams(52,52))
         root.addView(row)
-        if(conversationType=="direct"&&currentPeerId.isNotBlank()){
-            val callRow=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-            callRow.addView(action("📞 Llamada de voz"){startCall("audio")},LinearLayout.LayoutParams(0,54,1f))
-            callRow.addView(action("🎥 Videollamada"){startCall("video")},LinearLayout.LayoutParams(0,54,1f))
-            root.addView(callRow)
-        }
-        root.addView(action("🔎 Buscar dentro de esta conversación"){searchConversationDialog(id)})
-        root.addView(action("Cambiar fondo de este chat"){chooseWallpaper("chat_wallpaper_"+id)})
-        if(conversationType=="group"||conversationType=="room") {
-            root.addView(action("👥 Administrar grupo y miembros"){manageConversationMembers(id)})
-            root.addView(action("＋ Agregar integrante"){addConversationMemberDialog(id)})
-        }
-        root.addView(action("⭐ Ver favoritos y mensajes fijados"){showSavedMessages()})
-        root.addView(action("🧹 Limpiar historial"){confirmClearConversationHistory(id)})
         applyWallpaper("chat_wallpaper_"+id)
         api("GET","/api/conversations/$id/messages",null,{data->
             val arr=data.optJSONArray("messages")?:JSONArray()
@@ -595,6 +584,24 @@ class MainActivity : FragmentActivity() {
             api("POST","/api/conversations/$id/read",JSONObject(),{},{})
             header.text="Conectando al chat en tiempo real…";connectConversation()
         },{header.text=it})
+    }
+    private fun showConversationOptions(id:String,conversationType:String) {
+        val options=mutableListOf<String>()
+        val actions=mutableListOf<()->Unit>()
+        if(conversationType=="direct"&&currentPeerId.isNotBlank()) {
+            options.add("📞 Llamada de voz");actions.add{startCall("audio")}
+            options.add("🎥 Videollamada");actions.add{startCall("video")}
+        }
+        options.add("🔎 Buscar dentro de esta conversación");actions.add{searchConversationDialog(id)}
+        options.add("🎨 Cambiar fondo de este chat");actions.add{chooseWallpaper("chat_wallpaper_"+id)}
+        if(conversationType=="group"||conversationType=="room") {
+            options.add("👥 Administrar grupo y miembros");actions.add{manageConversationMembers(id)}
+            options.add("＋ Agregar integrante");actions.add{addConversationMemberDialog(id)}
+        }
+        options.add("⭐ Ver favoritos y mensajes fijados");actions.add{showSavedMessages()}
+        options.add("🧹 Limpiar historial");actions.add{confirmClearConversationHistory(id)}
+        AlertDialog.Builder(this).setTitle("Opciones de conversación")
+            .setItems(options.toTypedArray()){_,which->actions[which].invoke()}.show()
     }
     private fun showConversationHistory(conversationId:String,messages:List<JSONObject>,canLoadOlder:Boolean) {
         content.removeAllViews()
@@ -1068,30 +1075,50 @@ class MainActivity : FragmentActivity() {
     }
     private fun showMessageActions(obj:JSONObject,mine:Boolean) {
         val messageId=obj.optString("id")
-        val author=obj.optJSONObject("user")?.optString("name")?: "Usuario"
-        val body=obj.optString("text")
-        val options=mutableListOf("Responder","Copiar texto","Compartir mensaje","Guardar/Quitar de favoritos","Fijar/Desfijar mensaje","Reenviar a otro chat")
-        if(mine && body.isNotBlank())options.add("Editar mensaje")
-        options.add(if(mine)"Eliminar mensaje" else "Eliminar para mí")
-        AlertDialog.Builder(this).setTitle("Mensaje de $author").setItems(options.toTypedArray()){_,which->
-            when(which){
-                0->{composer.setText("↪ $author: "+body+"\n");composer.setSelection(composer.text.length);composer.requestFocus()}
-                1->{if(body.isBlank())toast("Este mensaje no contiene texto para copiar") else {val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager;clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Mensaje de $author",body));toast("Texto copiado")}}
-                2->{val share=Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_TEXT,"$author: $body")};startActivity(Intent.createChooser(share,"Compartir mensaje"))}
-                3->{
-                    AlertDialog.Builder(this).setTitle("Favoritos").setItems(arrayOf("Guardar","Quitar")){_,choice->
-                        if(choice==0)api("POST","/api/messages/$messageId/bookmark",JSONObject().put("pinned",false),{toast("Guardado y sincronizado en tus dispositivos")},{toast(it)})
-                        else api("DELETE","/api/messages/$messageId/bookmark",null,{toast("Quitado de favoritos")},{toast(it)})
-                    }.show()
+        val user=obj.optJSONObject("user")?:JSONObject()
+        val author=user.optString("name","Usuario")
+        val authorId=user.optString("id")
+        val options=mutableListOf("😊 Reaccionar con emojis","🗑 Eliminar mensaje")
+        if(!mine&&authorId.isNotBlank())options.add("✉ Enviar mensaje privado a $author")
+        AlertDialog.Builder(this).setTitle("Mensaje de $author")
+            .setItems(options.toTypedArray()){_,which->
+                when(options[which]) {
+                    "😊 Reaccionar con emojis"->showMessageReactions(messageId)
+                    "🗑 Eliminar mensaje"->showMessageDeleteOptions(messageId,mine)
+                    else->if(authorId.isNotBlank()&&authorId!=me.optString("id"))createConversation(authorId,author,false)
                 }
-                4->AlertDialog.Builder(this).setTitle("Mensaje fijado").setItems(arrayOf("Fijar mensaje","Desfijar mensaje")){_,choice->
-                    api("POST","/api/messages/$messageId/bookmark",JSONObject().put("pinned",choice==0),{toast(if(choice==0)"Mensaje fijado y sincronizado" else "Mensaje desfijado")},{toast(it)})
-                }.show()
-                5->forwardMessageDialog(messageId)
-                6->{if(mine && body.isNotBlank())editMessageDialog(messageId,body) else showMessageDeleteOptions(messageId,mine)}
-                else->showMessageDeleteOptions(messageId,mine)
+            }.show()
+    }
+    private fun showTappedMessageActions(obj:JSONObject) {
+        val text=obj.optString("text")
+        val media=obj.optJSONObject("media")
+        val options=mutableListOf<String>()
+        val actions=mutableListOf<()->Unit>()
+        if(text.isNotBlank()) {
+            options.add("Compartir mensaje")
+            actions.add {
+                val author=obj.optJSONObject("user")?.optString("name","Usuario")?:"Usuario"
+                val share=Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_TEXT,"$author: $text")}
+                startActivity(Intent.createChooser(share,"Compartir mensaje"))
             }
-        }.show()
+        }
+        if(media!=null) {
+            options.add("Compartir archivo")
+            actions.add {
+                val name=media.optString("name","Archivo")
+                val author=obj.optJSONObject("user")?.optString("name","Usuario")?:"Usuario"
+                val share=Intent(Intent.ACTION_SEND).apply {
+                    type="text/plain"
+                    putExtra(Intent.EXTRA_TEXT,"$author compartió contigo: $name")
+                }
+                startActivity(Intent.createChooser(share,"Compartir archivo"))
+            }
+            options.add("Descargar archivo")
+            actions.add{downloadMedia(media)}
+        }
+        if(options.isEmpty())return
+        AlertDialog.Builder(this).setTitle("Acciones del mensaje")
+            .setItems(options.toTypedArray()){_,which->actions[which].invoke()}.show()
     }
     private fun renderConversationMessage(obj:JSONObject) {
         if(obj.optString("deletedAt").isNotBlank()) {
@@ -1146,16 +1173,16 @@ class MainActivity : FragmentActivity() {
                 mime.startsWith("audio/") -> card.addView(action("▶  Reproducir música o audio: $mediaName"){playAudio(media)})
                 else -> card.addView(note("📎 Archivo: $mediaName"))
             }
-            card.addView(action("⬇  Descargar: $mediaName"){downloadMedia(media)})
+            card.contentDescription="Toca para compartir o descargar $mediaName"
         }
         val reactions=obj.optJSONArray("reactions")?:JSONArray()
         val summary=(0 until reactions.length()).mapNotNull{reactions.optJSONObject(it)?.optString("reaction")}.groupingBy{it}.eachCount().entries.joinToString("  "){"${it.key} ${it.value}"}
         if(summary.isNotBlank())card.addView(TextView(this).apply{this.text="Reacciones: $summary";textSize=13f;setTextColor(Color.WHITE)})
         val messageId=obj.optString("id")
         if(messageId.isNotBlank()){
-            card.addView(action("Reaccionar  👍  ❤️  😂  🔥"){showMessageReactions(messageId)})
+            card.setOnClickListener{showTappedMessageActions(obj)}
             card.setOnLongClickListener{showMessageActions(obj,mine);true}
-            card.contentDescription="Mantén presionado para ver opciones de este mensaje"
+            card.contentDescription="Toca para compartir o descargar; mantén presionado para reaccionar o administrar el mensaje"
         }
     }
     private fun editMessageDialog(messageId:String,original:String) {
