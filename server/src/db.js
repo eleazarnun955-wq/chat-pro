@@ -3,10 +3,24 @@ import { createHash } from "node:crypto";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SECRET_KEY;
-if (!url || !key) throw new Error("Faltan SUPABASE_URL o SUPABASE_SECRET_KEY en el servidor");
-export const supabase = createClient(url, key, {
-  auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
-});
+export const isConfigured = Boolean(url && key);
+export const missingConfig = [
+  !url ? "SUPABASE_URL" : null,
+  !key ? "SUPABASE_SECRET_KEY" : null
+].filter(Boolean);
+
+// Keep the HTTP process alive while credentials are being configured. Database
+// access remains blocked until both secrets exist; no placeholder credentials
+// are ever sent to Supabase.
+export const supabase = isConfigured
+  ? createClient(url, key, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
+    })
+  : new Proxy({}, {
+      get() {
+        throw new Error("Supabase no está configurado. Faltan: " + missingConfig.join(", "));
+      }
+    });
 const fail = (error) => { if (error) throw new Error(error.message || "Error de Supabase"); };
 const tokenHash = (token) => createHash("sha256").update(token).digest("hex");
 export const publicUser = (u) => u && ({
