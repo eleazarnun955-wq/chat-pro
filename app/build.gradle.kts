@@ -12,13 +12,13 @@ android {
     namespace = "com.djsebas.chatpro"
     compileSdk = 35
     defaultConfig {
-        // Independent install: CHAT PRO 2.2.3 installs independently alongside earlier versions.
-        applicationId = "com.djsebas.chatpro.v223"
+        // Independent install: CHAT PRO 2.2.4 installs independently alongside earlier versions.
+        applicationId = "com.djsebas.chatpro.v224"
         // Firebase Messaging 26 requires Android 7.0 (API 24) or newer.
         minSdk = 24
         targetSdk = 35
-        versionCode = 34
-        versionName = "2.2.3"
+        versionCode = 35
+        versionName = "2.2.4"
         buildConfigField("String", "FIREBASE_API_KEY", "\"$firebaseApiKey\"")
         buildConfigField("String", "FIREBASE_APP_ID", "\"$firebaseAppId\"")
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"$firebaseProjectId\"")
