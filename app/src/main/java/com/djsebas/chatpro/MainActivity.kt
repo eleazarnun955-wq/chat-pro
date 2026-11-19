@@ -69,6 +69,9 @@ class MainActivity : FragmentActivity() {
     private var voiceFile:File?=null
     private var isRecordingVoice=false
     private var currentConversationType="direct"
+    private var homeTab="Chats"
+    private var homeSubPage=""
+    private var backAction:(()->Unit)?=null
     private var appNeedsUnlock=false
     private val notificationChannelId="chatpro_messages"
     private lateinit var root:LinearLayout
@@ -97,6 +100,15 @@ class MainActivity : FragmentActivity() {
 
     private fun frame(title:String,subtitle:String="") {
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(bg);setPadding(14,10,14,10) }
+        if(backAction!=null) {
+            val nav=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
+            nav.addView(action("←  Atrás") {
+                val goBack=backAction
+                backAction=null
+                goBack?.invoke()
+            },LinearLayout.LayoutParams(-2,48))
+            root.addView(nav)
+        }
         root.addView(TextView(this).apply { text=title;textSize=25f;gravity=Gravity.CENTER;setTextColor(Color.WHITE);setPadding(4,8,4,2) })
         if(subtitle.isNotBlank())root.addView(TextView(this).apply{text=subtitle;textSize=12f;gravity=Gravity.CENTER;setTextColor(accent);setPadding(4,0,4,8)})
         header=TextView(this).apply{text="";textSize=13f;setTextColor(Color.LTGRAY);setPadding(4,6,4,6)}
@@ -213,6 +225,9 @@ class MainActivity : FragmentActivity() {
             .remove("token").remove("token_iv").remove("token_cipher").apply()
     }
     private fun showHome(tab:String) {
+        backAction=null
+        homeTab=tab
+        homeSubPage=""
         registerPushToken()
         socket?.disconnect()
         connectCallSocket()
@@ -476,6 +491,7 @@ class MainActivity : FragmentActivity() {
             }.show()
     }
     private fun showPublicRooms() {
+        homeSubPage="Salas"
         content.removeAllViews();header.text="Salas públicas · puedes unirte o abrir las que ya frecuentas"
         content.addView(action("＋ Crear sala pública"){createRoomDialog("public")})
         api("GET","/api/rooms",null,{data->
@@ -540,6 +556,12 @@ class MainActivity : FragmentActivity() {
     }
     private fun openConversation(id:String,title:String,peerId:String="",conversationType:String="direct") {
         currentConversation=id;currentTitle=title;currentPeerId=if(conversationType=="direct")peerId else "";currentConversationType=conversationType
+        val returnTab=homeTab
+        val returnSubPage=homeSubPage
+        backAction={
+            showHome(returnTab)
+            if(returnSubPage=="Salas") showPublicRooms()
+        }
         frame(title,"Conversación protegida · CHAT PRO")
         header.text="Cargando historial…"
         composer=field("Escribe un mensaje")
@@ -1516,6 +1538,16 @@ class MainActivity : FragmentActivity() {
         val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(2,5,2,7);layoutParams=lp
     }
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()
+    @Deprecated("Android back navigation")
+    override fun onBackPressed() {
+        val goBack=backAction
+        if(goBack!=null) {
+            backAction=null
+            goBack.invoke()
+        } else {
+            super.onBackPressed()
+        }
+    }
     override fun onPause(){
         super.onPause()
         if(token.isNotBlank() && getSharedPreferences("chatpro",MODE_PRIVATE).getString("app_pin","").orEmpty().isNotBlank()) appNeedsUnlock=true
