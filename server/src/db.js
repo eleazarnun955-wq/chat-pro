@@ -156,10 +156,10 @@ export async function listMessages(conversationId, userId, before=null, limit=50
   fail(re); fail(he); fail(receiptError);
   const hiddenIds=new Set((hidden||[]).map(x=>x.message_id));
   const receiptByMessage=new Map((receipts||[]).map(x=>[x.message_id,x]));
-  return (data||[]).filter(m=>!hiddenIds.has(m.id)).map(m=>{
+  return messages.filter(m=>!hiddenIds.has(m.id)).map(m=>{
     const receipt=receiptByMessage.get(m.id);
     return { id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at,
-      deliveredAt:receipt?.delivered_at||m.delivered_at, readAt:receipt?.read_at||m.read_at,
+      deliveredAt:receipt?.delivered_at||null, readAt:receipt?.read_at||null,
       deletedAt:m.deleted_at||null, deletedBy:m.deleted_by||null,
       reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) };
   });
