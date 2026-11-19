@@ -40,6 +40,15 @@ function authRateLimit(bucket,limit=8,windowMs=15*60*1000){
 }
 app.use(cors({origin:process.env.CORS_ORIGIN?.split(",")||"*"}));
 app.use(express.json({limit:"2mb"}));
+// Keep Render's process healthy while Supabase credentials are pending, but
+// fail closed for every data/API route until the backend is fully configured.
+app.use((req,res,next)=>{
+ if(req.path==="/health" || db.isConfigured)return next();
+ return res.status(503).json({
+  error:"CHAT PRO está en línea, pero el backend aún no está configurado.",
+  missingConfiguration:db.missingConfig
+ });
+});
 let firebaseMessaging=null;
 function getFirebaseMessaging(){
  if(firebaseMessaging)return firebaseMessaging;
@@ -87,7 +96,7 @@ const auth=asyncRoute(async(req,res,next)=>{
  if(!user)return res.status(401).json({error:"Inicia sesión para continuar"});
  req.user=user;req.token=token;next();
 });
-app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.2.0",database:"supabase",features:["accounts","direct-messages","groups","group-roles","media","history-pagination","per-user-read-receipts","profiles","statuses-24h","fcm-push","turn-ice-config"]}));
+app.get("/health",(_q,r)=>r.status(200).json({ok:true,ready:db.isConfigured,service:"CHAT PRO",version:"2.2.0",database:db.isConfigured?"supabase":"pending-configuration",missingConfiguration:db.missingConfig,features:["accounts","direct-messages","groups","group-roles","media","history-pagination","per-user-read-receipts","profiles","statuses-24h","fcm-push","turn-ice-config"]}));
 app.get("/api/calls/ice-config",auth,asyncRoute(async(q,r)=>{
  const iceServers=[
   {urls:"stun:stun.l.google.com:19302"},
