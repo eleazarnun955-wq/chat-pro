@@ -44,9 +44,11 @@ Esta migración crea tablas de tokens push y recibos individuales, y habilita ro
 - Render configurado en la app: `https://chat-pro-server-qhjw.onrender.com`.
 - Supabase: PostgreSQL y Storage.
 - Las claves privadas de Supabase permanecen únicamente en el servidor.
+- Si faltan `SUPABASE_URL` o `SUPABASE_SECRET_KEY`, el proceso HTTP permanece activo y `/health` informa `ready: false`; las rutas de datos responden HTTP 503 hasta configurar ambas variables. No se usan credenciales de prueba.
 
 ## Validación pendiente antes de distribuir
 - Compilación Android y pruebas de instalación en dos teléfonos; confirmar que 2.1.0 y 2.2.0 coexisten.
+- Configuración pendiente en Render: `SUPABASE_URL` y `SUPABASE_SECRET_KEY`. Hasta entonces el servidor informa estado no listo y las funciones conectadas permanecen deshabilitadas.
 - Aplicar migración y desplegar esta rama del backend en Render.
 - Pruebas reales de permisos, chats, grupos, medios, PIN/biometría y llamadas por Wi-Fi y datos móviles.
 - Configurar las credenciales Firebase indicadas y probar FCM en un teléfono con la app cerrada/forzada; la entrega push no puede activarse hasta que existan esas credenciales.
