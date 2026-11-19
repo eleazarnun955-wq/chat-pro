@@ -1147,9 +1147,16 @@ class MainActivity : FragmentActivity() {
             options.add("Descargar archivo")
             actions.add{downloadMedia(media)}
         }
-        if(options.isEmpty())return
-        AlertDialog.Builder(this).setTitle("Acciones del mensaje")
-            .setItems(options.toTypedArray()){_,which->actions[which].invoke()}.show()
+        options.add("🗑️ Borrar mensaje")
+        val user=obj.optJSONObject("user")?:JSONObject()
+        val mine=user.optString("id")==me.optString("id")
+        actions.add {
+            val messageId=obj.optString("id")
+            if(messageId.isNotBlank()) showMessageDeleteOptions(messageId,mine)
+        }
+        AlertDialog.Builder(this).setTitle("Mensaje seleccionado")
+            .setItems(options.toTypedArray()){_,which->actions[which].invoke()}
+            .setNegativeButton("Cancelar",null).show()
     }
     private fun attachMessageLongPress(view:android.view.View,obj:JSONObject) {
         view.setOnLongClickListener {
@@ -1237,7 +1244,8 @@ class MainActivity : FragmentActivity() {
         if(messageId.isNotBlank()){
             // Mantener presionado abre solo Reaccionar o Mensaje privado. No incluye borrar.
             attachMessageLongPress(card,obj)
-            card.contentDescription="Mantén presionado para reaccionar o enviar mensaje privado"
+            card.setOnClickListener { showTappedMessageActions(obj) }
+            card.contentDescription="Toca para compartir o borrar; mantén presionado para reaccionar o enviar mensaje privado"
         }
     }
     private fun editMessageDialog(messageId:String,original:String) {
