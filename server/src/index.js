@@ -25,7 +25,7 @@ const auth=asyncRoute(async(req,res,next)=>{
  if(!user)return res.status(401).json({error:"Inicia sesión para continuar"});
  req.user=user;req.token=token;next();
 });
-app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.1.0",database:"supabase",features:["accounts","direct-messages","groups","media","history","profiles","statuses-24h"]}));
+app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.2.0",database:"supabase",features:["accounts","direct-messages","groups","media","history","profiles","statuses-24h"]}));
 
 app.post("/api/register",asyncRoute(async(q,r)=>{
  const name=clean(q.body?.name,40),email=clean(q.body?.email,254).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
