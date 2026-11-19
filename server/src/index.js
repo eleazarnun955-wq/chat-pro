@@ -106,6 +106,23 @@ app.post("/api/me/password",auth,asyncRoute(async(q,r)=>{
  r.json({ok:true,message:"Contraseña actualizada. Las demás sesiones se cerraron."});
 }));
 app.get("/api/me",auth,(q,r)=>r.json({user:db.publicUser(q.user)}));
+app.post("/api/push/devices",auth,asyncRoute(async(q,r)=>{
+ const fcmToken=typeof q.body?.fcmToken==="string"?q.body.fcmToken.trim():"";
+ if(fcmToken.length<50||fcmToken.length>4096)return r.status(400).json({error:"Token de notificaciones no válido"});
+ const {data,error}=await db.supabase.from("push_devices").upsert({
+  user_id:q.user.id,fcm_token:fcmToken,platform:"android",enabled:true,updated_at:new Date().toISOString()
+ },{onConflict:"fcm_token"}).select("id,enabled").single();
+ if(error)throw error;
+ r.status(201).json({ok:true,deviceId:data.id});
+}));
+app.delete("/api/push/devices",auth,asyncRoute(async(q,r)=>{
+ const fcmToken=typeof q.body?.fcmToken==="string"?q.body.fcmToken.trim():"";
+ if(!fcmToken)return r.status(400).json({error:"Token no válido"});
+ const {error}=await db.supabase.from("push_devices").delete().eq("user_id",q.user.id).eq("fcm_token",fcmToken);
+ if(error)throw error;
+ r.json({ok:true});
+}));
+
 app.patch("/api/me",auth,asyncRoute(async(q,r)=>{
  const updated=await db.updateUser(q.user.id,{name:clean(q.body?.name,40),about:clean(q.body?.about,140),avatarUrl:clean(q.body?.avatarUrl,500)});
  r.json({user:db.publicUser(updated)});
