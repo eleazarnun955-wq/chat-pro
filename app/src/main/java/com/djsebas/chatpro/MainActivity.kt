@@ -52,7 +52,7 @@ class MainActivity : FragmentActivity() {
     private val panel=Color.rgb(32,44,51)
     private var accent=Color.rgb(37,211,102)
     private val http=OkHttpClient.Builder().connectTimeout(25,TimeUnit.SECONDS).readTimeout(90,TimeUnit.SECONDS).build()
-    private val defaultBaseUrl="https://chat-pro-server-qhjw.onrender.com"
+    private val defaultBaseUrl="https://chat-pro-server-2-2-0.onrender.com"
     private var baseUrl=defaultBaseUrl
     private var token=""
     private var me=JSONObject()
