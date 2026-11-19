@@ -249,13 +249,13 @@ app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
 app.get("/api/conversations/:id/members",auth,asyncRoute(async(q,r)=>{
  const c=await db.getConversation(q.params.id);
  if(!c||!["group","room"].includes(c.type)||!await member(c.id,q.user.id))return r.sendStatus(404);
- const {data:rows,error}=await db.supabase.from("conversation_members").select("user_id,role,joined_at")
-  .eq("conversation_id",c.id).order("joined_at",{ascending:true});
+ const {data:rows,error}=await db.supabase.from("conversation_members").select("user_id,role")
+  .eq("conversation_id",c.id);
  if(error)throw error;
  const members=[];
  for(const row of rows||[]){
   const profile=await db.findUserById(row.user_id);
-  if(profile)members.push({user:db.publicUser(profile),role:row.role||"member",joinedAt:row.joined_at||null});
+  if(profile)members.push({user:db.publicUser(profile),role:row.role||"member",});
  }
  r.json({members,canManage:isGroupManager(await memberRole(c.id,q.user.id)),isOwner:await memberRole(c.id,q.user.id)==="owner"});
 }));
