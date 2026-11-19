@@ -14,7 +14,8 @@ android {
     defaultConfig {
         // Independent install: CHAT PRO 2.2.0 can coexist with 2.1.0.
         applicationId = "com.djsebas.chatpro.v220"
-        minSdk = 23
+        // Firebase Messaging 26 requires Android 7.0 (API 24) or newer.
+        minSdk = 24
         targetSdk = 35
         versionCode = 31
         versionName = "2.2.0"
