@@ -213,6 +213,7 @@ class MainActivity : FragmentActivity() {
             .remove("token").remove("token_iv").remove("token_cipher").apply()
     }
     private fun showHome(tab:String) {
+        registerPushToken()
         socket?.disconnect()
         connectCallSocket()
         // Navegación inferior moderna inspirada en mensajería: Chats, Contactos, Estados y Llamadas.
