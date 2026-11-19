@@ -1164,7 +1164,7 @@ class MainActivity : FragmentActivity() {
             val mime=media.optString("mimeType").lowercase()
             when {
                 mime.startsWith("image/") -> {
-                    val preview=ImageView(this).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER;maxHeight=(220*resources.displayMetrics.density).toInt();setBackgroundColor(Color.argb(55,255,255,255))}
+                    val preview=ImageView(this).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER;maxHeight=(220*resources.displayMetrics.density).toInt();setBackgroundColor(Color.argb(55,255,255,255));setOnClickListener{showTappedMessageActions(obj)}}
                     card.addView(preview,LinearLayout.LayoutParams(-1,(220*resources.displayMetrics.density).toInt()))
                     loadImagePreview(media,preview)
                     card.addView(action("Ver imagen: $mediaName"){showImage(media)})
