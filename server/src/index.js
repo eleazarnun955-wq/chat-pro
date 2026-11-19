@@ -16,6 +16,13 @@ const uploadDir=process.env.UPLOAD_DIR||path.resolve("uploads");
 fs.mkdirSync(uploadDir,{recursive:true});
 const clean=(s,max=80)=>typeof s==="string"?s.trim().slice(0,max):"";
 const member=async (conversationId,uid)=>db.isMember(conversationId,uid);
+const memberRole=async (conversationId,uid)=>{
+ const {data,error}=await db.supabase.from("conversation_members").select("role")
+  .eq("conversation_id",conversationId).eq("user_id",uid).maybeSingle();
+ if(error)throw error;
+ return data?.role||null;
+};
+const isGroupManager=role=>["owner","admin","moderator"].includes(role);
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 // Per-process authentication throttling. Production multi-instance deployments should
 // additionally enforce a shared limit at the edge or in a shared store.
@@ -182,6 +189,19 @@ app.post("/api/messages/:id/forward",auth,asyncRoute(async(q,r)=>{
  const targetId=clean(q.body?.conversationId,80);
  if(!original||!await member(original.conversation_id,q.user.id)||!await member(targetId,q.user.id))return r.sendStatus(404);
  if(original.deleted_at)return r.status(409).json({error:"No se puede reenviar un mensaje eliminado"});
+ const target=await db.getConversation(targetId);
+ if(!target)return r.sendStatus(404);
+ if(target.type==="direct"){
+  const {data:targetMembers,error:membersError}=await db.supabase.from("conversation_members").select("user_id").eq("conversation_id",targetId);
+  if(membersError)throw membersError;
+  const other=(targetMembers||[]).map(x=>x.user_id).find(id=>id!==q.user.id);
+  if(other){
+   const {data:blocked,error:blockError}=await db.supabase.from("user_blocks").select("blocker_id,blocked_id")
+    .or(`and(blocker_id.eq.${q.user.id},blocked_id.eq.${other}),and(blocker_id.eq.${other},blocked_id.eq.${q.user.id})`);
+   if(blockError)throw blockError;
+   if((blocked||[]).length)return r.status(403).json({error:"No se puede reenviar a esta conversación por la configuración de bloqueo"});
+  }
+ }
  const {data:source,error}=await db.supabase.from("messages").select("body,media").eq("id",original.id).single();
  if(error)throw error;
  const forwarded=await db.createMessage({id:randomUUID(),conversationId:targetId,senderId:q.user.id,text:source.body||"",media:source.media||null});
@@ -228,9 +248,40 @@ app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
 }));
 app.post("/api/conversations/:id/members",auth,asyncRoute(async(q,r)=>{
  const c=await db.getConversation(q.params.id);
- if(!c||!["group","room"].includes(c.type)||c.visibility!=="private"&&c.type==="room"||c.created_by!==q.user.id||!await member(c.id,q.user.id))return r.sendStatus(403);
- const uid=q.body?.userId;if(!uid||!await db.findUserById(uid))return r.status(404).json({error:"Usuario no encontrado"});
- await db.addConversationMember(c.id,uid);r.json({ok:true});
+ const role=c?await memberRole(c.id,q.user.id):null;
+ if(!c||!["group","room"].includes(c.type)||(c.type==="room"&&c.visibility!=="private")||!isGroupManager(role))return r.sendStatus(403);
+ const uid=clean(q.body?.userId,80);
+ if(!uid||!await db.findUserById(uid))return r.status(404).json({error:"Usuario no encontrado"});
+ await db.addConversationMember(c.id,uid);
+ r.status(201).json({ok:true,role:"member"});
+}));
+app.delete("/api/conversations/:id/members/:userId",auth,asyncRoute(async(q,r)=>{
+ const c=await db.getConversation(q.params.id);
+ const actorRole=c?await memberRole(c.id,q.user.id):null;
+ const targetId=clean(q.params.userId,80);
+ const targetRole=c?await memberRole(c.id,targetId):null;
+ if(!c||!["group","room"].includes(c.type)||!actorRole||!targetRole)return r.sendStatus(404);
+ const selfLeaving=targetId===q.user.id;
+ if(!selfLeaving&&!isGroupManager(actorRole))return r.sendStatus(403);
+ if(targetRole==="owner")return r.status(409).json({error:"Transfiere la propiedad antes de retirar al propietario"});
+ if(!selfLeaving&&actorRole==="moderator"&&targetRole!=="member")return r.sendStatus(403);
+ const {error}=await db.supabase.from("conversation_members").delete()
+  .eq("conversation_id",c.id).eq("user_id",targetId);
+ if(error)throw error;
+ io.to(c.id).emit("conversation:member_removed",{conversationId:c.id,userId:targetId,removedBy:q.user.id});
+ r.json({ok:true});
+}));
+app.patch("/api/conversations/:id/members/:userId/role",auth,asyncRoute(async(q,r)=>{
+ const c=await db.getConversation(q.params.id);
+ if(!c||!["group","room"].includes(c.type)||await memberRole(c.id,q.user.id)!=="owner")return r.sendStatus(403);
+ const targetId=clean(q.params.userId,80),nextRole=q.body?.role;
+ if(!["admin","moderator","member"].includes(nextRole))return r.status(400).json({error:"Rol no válido"});
+ if(!await member(c.id,targetId))return r.sendStatus(404);
+ const {error}=await db.supabase.from("conversation_members").update({role:nextRole})
+  .eq("conversation_id",c.id).eq("user_id",targetId);
+ if(error)throw error;
+ io.to(c.id).emit("conversation:member_role",{conversationId:c.id,userId:targetId,role:nextRole});
+ r.json({ok:true,role:nextRole});
 }));
 
 app.get("/api/statuses",auth,asyncRoute(async(q,r)=>{
