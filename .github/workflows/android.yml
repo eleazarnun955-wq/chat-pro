@@ -1,7 +1,7 @@
 name: Build CHAT PRO APK
 on:
   push:
-    branches: [ main, feature/email-only-registration, feature/calls-1.8.0, feature/chat-pro-1.9.0-unified, chat-pro-2.0-free, chat-pro-2.0.1-independent, chat-pro-2.1.0-independent ]
+    branches: [ main, feature/email-only-registration, feature/calls-1.8.0, feature/chat-pro-1.9.0-unified, chat-pro-2.0-free, chat-pro-2.0.1-independent, chat-pro-2.1.0-independent, chat-pro-2.2.0-independent ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -57,7 +57,7 @@ jobs:
         if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: CHAT-PRO-release
+          name: CHAT-PRO-2.2.0-release
           path: app/build/outputs/apk/release/app-release.apk
           retention-days: 90
       - name: Build debug APK without signing secrets
@@ -67,6 +67,6 @@ jobs:
         if: steps.signing.outputs.available != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: CHAT-PRO-debug
+          name: CHAT-PRO-2.2.0-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 90
