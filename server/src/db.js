@@ -123,22 +123,45 @@ export async function addConversationMember(conversationId, userId) {
 }
 export async function markConversationRead(conversationId, userId) {
   const now = new Date().toISOString();
-  const { error: memberError } = await supabase.from("conversation_members").update({ last_read_at: now }).eq("conversation_id", conversationId).eq("user_id", userId);
+  const { error: memberError } = await supabase.from("conversation_members")
+    .update({ last_read_at: now }).eq("conversation_id", conversationId).eq("user_id", userId);
   fail(memberError);
-  const { error: messageError } = await supabase.from("messages").update({ read_at: now }).eq("conversation_id", conversationId).neq("sender_id", userId).is("read_at", null);
+  // Receipts are per recipient: reading a group message must not mark it read for everyone.
+  const { data: unread, error: unreadError } = await supabase.from("messages")
+    .select("id").eq("conversation_id", conversationId).neq("sender_id", userId).is("deleted_at", null);
+  fail(unreadError);
+  const receipts = (unread || []).map(message => ({
+    message_id: message.id, user_id: userId, delivered_at: now, read_at: now
+  }));
+  for (let i = 0; i < receipts.length; i += 500) {
+    const { error } = await supabase.from("message_receipts")
+      .upsert(receipts.slice(i, i + 500), { onConflict: "message_id,user_id" });
+    fail(error);
+  }
+  // Preserve the legacy timestamp for older clients while new clients use message_receipts.
+  const { error: messageError } = await supabase.from("messages").update({ read_at: now })
+    .eq("conversation_id", conversationId).neq("sender_id", userId).is("read_at", null);
   fail(messageError);
   return now;
 }
 export async function listMessages(conversationId, userId) {
   const { data, error } = await supabase.from("messages").select("*,profiles!messages_sender_id_fkey(*)").eq("conversation_id",conversationId).order("created_at",{ascending:true}).limit(500); fail(error);
   const ids=(data||[]).map(m=>m.id);
-  const [{data:reactions,error:re},{data:hidden,error:he}] = await Promise.all([
+  const [{data:reactions,error:re},{data:hidden,error:he},{data:receipts,error:receiptError}] = await Promise.all([
     ids.length ? supabase.from("message_reactions").select("message_id,user_id,reaction").in("message_id",ids) : Promise.resolve({data:[],error:null}),
-    userId ? supabase.from("message_hidden_for").select("message_id").eq("user_id",userId).in("message_id",ids) : Promise.resolve({data:[],error:null})
+    userId ? supabase.from("message_hidden_for").select("message_id").eq("user_id",userId).in("message_id",ids) : Promise.resolve({data:[],error:null}),
+    userId && ids.length ? supabase.from("message_receipts").select("message_id,delivered_at,read_at").eq("user_id",userId).in("message_id",ids) : Promise.resolve({data:[],error:null})
   ]);
-  fail(re); fail(he);
+  fail(re); fail(he); fail(receiptError);
   const hiddenIds=new Set((hidden||[]).map(x=>x.message_id));
-  return (data||[]).filter(m=>!hiddenIds.has(m.id)).map(m=>({ id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at, deliveredAt:m.delivered_at, readAt:m.read_at, deletedAt:m.deleted_at||null, deletedBy:m.deleted_by||null, reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) }));
+  const receiptByMessage=new Map((receipts||[]).map(x=>[x.message_id,x]));
+  return (data||[]).filter(m=>!hiddenIds.has(m.id)).map(m=>{
+    const receipt=receiptByMessage.get(m.id);
+    return { id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at,
+      deliveredAt:receipt?.delivered_at||m.delivered_at, readAt:receipt?.read_at||m.read_at,
+      deletedAt:m.deleted_at||null, deletedBy:m.deleted_by||null,
+      reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) };
+  });
 }
 export async function searchConversationMessages(conversationId,userId,term) {
   const { data: rows, error } = await supabase.from("messages")
