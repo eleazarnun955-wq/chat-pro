@@ -601,6 +601,10 @@ io.on("connection",socket=>{
      senderName:user.name||user.username||"Nuevo mensaje",
      preview:String(preview).slice(0,140)
     });
+    const recipientSockets=await io.in("user:"+memberRow.user_id).fetchSockets();
+    if(!recipientSockets.length)sendPushToUser(memberRow.user_id,user.name||user.username||"Nuevo mensaje",preview,{
+     type:"message",conversationId:id
+    }).catch(error=>console.error("CHAT PRO message push failed:",error.message));
    }
   }catch(e){socket.emit("chat:error",{message:"No se pudo enviar el mensaje"})}
  });
