@@ -492,7 +492,19 @@ function finishCall(callId,event="call:ended",reason="ended"){
 
 io.on("connection",socket=>{
  const user=socket.data.user;
- if(user){socket.join("user:"+user.id);db.updateLastSeen(user.id).catch(console.error);io.emit("presence:changed",{userId:user.id,online:true});}
+ if(user){
+  socket.join("user:"+user.id);
+  db.updateLastSeen(user.id).catch(console.error);
+  io.emit("presence:changed",{userId:user.id,online:true});
+  // Re-deliver a pending call after FCM wakes the app and its socket reconnects.
+  for(const call of activeCalls.values()){
+   if(call.calleeId===user.id&&!call.accepted){
+    db.findUserById(call.callerId).then(caller=>{
+     if(caller)socket.emit("call:incoming",{callId:call.callId,conversationId:call.conversationId,mediaType:call.mediaType,fromUser:db.publicUser(caller)});
+    }).catch(error=>console.error("CHAT PRO pending call lookup failed:",error.message));
+   }
+  }
+ }
 
  socket.on("call:start",async payload=>{
   try{
