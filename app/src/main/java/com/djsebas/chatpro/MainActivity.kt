@@ -70,6 +70,7 @@ class MainActivity : FragmentActivity() {
     private var voiceFile:File?=null
     private var isRecordingVoice=false
     private var currentConversationType="direct"
+    private val reactionViews=mutableMapOf<String,TextView>()
     private var homeTab="Chats"
     private var homeSubPage=""
     private var backAction:(()->Unit)?=null
@@ -558,6 +559,7 @@ class MainActivity : FragmentActivity() {
     }
     private fun openConversation(id:String,title:String,peerId:String="",conversationType:String="direct") {
         currentConversation=id;currentTitle=title;currentPeerId=if(conversationType=="direct")peerId else "";currentConversationType=conversationType
+        reactionViews.clear()
         val returnTab=homeTab
         val returnSubPage=homeSubPage
         backAction={
@@ -776,18 +778,25 @@ class MainActivity : FragmentActivity() {
         }catch(error:Exception){android.util.Log.e("CHATPRO-CALL","No se pudo preparar el canal de llamadas",error)}
     }
     private fun connectConversation() {
+        val idForSocket=currentConversation
+        reactionViews.clear()
         try {
             socket=IO.socket(baseUrl,IO.Options.builder().setAuth(mapOf("token" to token)).setReconnection(true).setTimeout(30000).build())
             socket?.on(Socket.EVENT_CONNECT){runOnUiThread{header.text="En línea · $currentTitle"}}
             socket?.on("conversation:history"){args->
                 val a=args.firstOrNull() as? JSONArray?:return@on
-                runOnUiThread{content.removeAllViews();for(i in 0 until a.length())renderConversationMessage(a.optJSONObject(i)?:continue)}
+                runOnUiThread{reactionViews.clear();content.removeAllViews();for(i in 0 until a.length())renderConversationMessage(a.optJSONObject(i)?:continue)}
             }
             socket?.on("conversation:message"){args->
                 val obj=args.firstOrNull() as? JSONObject?:return@on
                 runOnUiThread{renderConversationMessage(obj)}
             }
-            socket?.on("message:reaction"){runOnUiThread{refreshConversationMessages()}}
+            socket?.on("message:reaction"){args->
+                val event=args.firstOrNull() as? JSONObject?:return@on
+                val messageId=event.optString("messageId")
+                val reactions=event.optJSONArray("reactions")?:JSONArray()
+                runOnUiThread{if(currentConversation==idForSocket)updateMessageReactions(messageId,reactions)}
+            }
             socket?.on("message:edited"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("message:deleted"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("message:hidden"){runOnUiThread{refreshConversationMessages()}}
@@ -1238,9 +1247,17 @@ class MainActivity : FragmentActivity() {
             card.contentDescription="Toca para compartir o descargar $mediaName"
         }
         val reactions=obj.optJSONArray("reactions")?:JSONArray()
-        val summary=(0 until reactions.length()).mapNotNull{reactions.optJSONObject(it)?.optString("reaction")}.groupingBy{it}.eachCount().entries.joinToString("  "){"${it.key} ${it.value}"}
-        if(summary.isNotBlank())card.addView(TextView(this).apply{this.text="Reacciones: $summary";textSize=13f;setTextColor(Color.WHITE)})
         val messageId=obj.optString("id")
+        if(messageId.isNotBlank()) {
+            val reactionView=TextView(this).apply {
+                textSize=13f
+                setTextColor(Color.WHITE)
+                setPadding(0,5,0,0)
+            }
+            card.addView(reactionView)
+            reactionViews[messageId]=reactionView
+            updateMessageReactionView(messageId,reactions)
+        }
         if(messageId.isNotBlank()){
             // Mantener presionado abre solo Reaccionar o Mensaje privado. No incluye borrar.
             attachMessageLongPress(card,obj)
@@ -1287,9 +1304,9 @@ class MainActivity : FragmentActivity() {
                 contentDescription="Reaccionar con $emoji"
                 setOnClickListener {
                     isEnabled=false
-                    api("POST","/api/messages/$messageId/reactions",JSONObject().put("reaction",emoji),{
+                    api("POST","/api/messages/$messageId/reactions",JSONObject().put("reaction",emoji),{data->
                         dialog.dismiss()
-                        refreshConversationMessages()
+                        updateMessageReactions(messageId,data.optJSONArray("reactions")?:JSONArray())
                     },{error->
                         isEnabled=true
                         toast("No se pudo guardar la reacción: $error")
@@ -1309,10 +1326,24 @@ class MainActivity : FragmentActivity() {
         if(id.isBlank())return
         api("GET","/api/conversations/$id/messages",null,{data->
             if(currentConversation!=id)return@api
+            reactionViews.clear()
             content.removeAllViews()
             val arr=data.optJSONArray("messages")?:JSONArray()
             for(i in 0 until arr.length())renderConversationMessage(arr.optJSONObject(i)?:continue)
         },{header.text=it})
+    }
+    private fun updateMessageReactionView(messageId:String,reactions:JSONArray) {
+        val view=reactionViews[messageId]?:return
+        val summary=(0 until reactions.length())
+            .mapNotNull{reactions.optJSONObject(it)?.optString("reaction")}
+            .filter{it.isNotBlank()}
+            .groupingBy{it}.eachCount().entries.joinToString("  "){ "${it.key} ${it.value}" }
+        view.text=if(summary.isBlank())"" else "Reacciones: $summary"
+        view.visibility=if(summary.isBlank())android.view.View.GONE else android.view.View.VISIBLE
+    }
+    private fun updateMessageReactions(messageId:String,reactions:JSONArray) {
+        if(messageId.isBlank())return
+        updateMessageReactionView(messageId,reactions)
     }
     private fun mediaUrl(media:JSONObject):String? {
         val path=media.optString("downloadPath")
