@@ -8,7 +8,8 @@ import multer from "multer";
 import { resolveUploadExtension, isSupportedUpload, uploadMimeForExtension } from "./upload-policy.js";
 import { randomUUID, scryptSync, timingSafeEqual, createHmac } from "node:crypto";
 import * as db from "./db.js";
-import admin from "firebase-admin";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 
 const app=express(), server=http.createServer(app);
 const PORT=Number(process.env.PORT||10000);
@@ -47,9 +48,9 @@ function getFirebaseMessaging(){
  try{
   const account=JSON.parse(raw);
   if(account.private_key)account.private_key=account.private_key.replace(/\\n/g,"\n");
-  const app=admin.apps.find(item=>item.name==="chat-pro-fcm")||
-   admin.initializeApp({credential:admin.credential.cert(account)},"chat-pro-fcm");
-  firebaseMessaging=admin.messaging(app);
+  const app=getApps().find(item=>item.name==="chat-pro-fcm")||
+   initializeApp({credential:cert(account)},"chat-pro-fcm");
+  firebaseMessaging=getMessaging(app);
   return firebaseMessaging;
  }catch(error){
   console.error("CHAT PRO FCM configuration invalid:",error.message);
