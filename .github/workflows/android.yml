@@ -46,6 +46,11 @@ jobs:
           fi
       - name: Build signed release APK
         if: steps.signing.outputs.available == 'true'
+        env:
+          FIREBASE_API_KEY: \${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: \${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_PROJECT_ID: \${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SENDER_ID: \${{ secrets.FIREBASE_SENDER_ID }}
         run: gradle --no-daemon assembleRelease
       - name: Verify APK signature
         if: steps.signing.outputs.available == 'true'
@@ -62,6 +67,11 @@ jobs:
           retention-days: 90
       - name: Build debug APK without signing secrets
         if: steps.signing.outputs.available != 'true'
+        env:
+          FIREBASE_API_KEY: \${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: \${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_PROJECT_ID: \${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SENDER_ID: \${{ secrets.FIREBASE_SENDER_ID }}
         run: gradle --no-daemon assembleDebug
       - name: Upload debug APK
         if: steps.signing.outputs.available != 'true'
