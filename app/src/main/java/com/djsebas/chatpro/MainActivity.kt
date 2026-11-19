@@ -85,7 +85,7 @@ class MainActivity : FragmentActivity() {
             defaultBaseUrl
         }
         accent=p.getInt("accent_color",Color.rgb(37,211,102))
-        token=p.getString("token","")?:""
+        token=readSecureToken()
         setupMessageNotifications()
         if(token.isNotBlank()) {
             val savedPin=p.getString("app_pin","")?:""
@@ -129,7 +129,7 @@ class MainActivity : FragmentActivity() {
                     val data=JSONObject(res.body?.string()?: "{}")
                     if(!res.isSuccessful)throw Exception(data.optString("error","HTTP ${res.code}"))
                     token=data.optString("token");me=data.optJSONObject("user")?:JSONObject()
-                    getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("token",token).apply()
+                    saveSecureToken(token)
                     runOnUiThread{showHome("Chats")}
                 }
             } catch(e:Exception){runOnUiThread{header.text=e.message?: "No se pudo iniciar sesión"}}
@@ -155,6 +155,60 @@ class MainActivity : FragmentActivity() {
                 }
             }catch(e:Exception){runOnUiThread{fail(e.message?:"Error de conexión")}}
         }.start()
+    }
+    private fun tokenKey():javax.crypto.SecretKey {
+        val alias="chatpro_session_key_v220"
+        val store=java.security.KeyStore.getInstance("AndroidKeyStore").apply{load(null)}
+        val existing=store.getKey(alias,null) as? javax.crypto.SecretKey
+        if(existing!=null)return existing
+        val generator=javax.crypto.KeyGenerator.getInstance(
+            android.security.keystore.KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore")
+        val spec=android.security.keystore.KeyGenParameterSpec.Builder(
+            alias,
+            android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT
+        ).setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setRandomizedEncryptionRequired(true).build()
+        generator.init(spec)
+        return generator.generateKey()
+    }
+    private fun saveSecureToken(value:String) {
+        try {
+            val cipher=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE,tokenKey())
+            val encrypted=cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+            val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+            prefs.edit().remove("token")
+                .putString("token_iv",android.util.Base64.encodeToString(cipher.iv,android.util.Base64.NO_WRAP))
+                .putString("token_cipher",android.util.Base64.encodeToString(encrypted,android.util.Base64.NO_WRAP))
+                .apply()
+        } catch(error:Exception) {
+            toast("No se pudo proteger la sesión en este teléfono")
+        }
+    }
+    private fun readSecureToken():String {
+        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+        val encrypted=prefs.getString("token_cipher","")?:""
+        if(encrypted.isNotBlank()) {
+            return try {
+                val iv=android.util.Base64.decode(prefs.getString("token_iv",""),android.util.Base64.NO_WRAP)
+                val bytes=android.util.Base64.decode(encrypted,android.util.Base64.NO_WRAP)
+                val cipher=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(javax.crypto.Cipher.DECRYPT_MODE,tokenKey(),javax.crypto.spec.GCMParameterSpec(128,iv))
+                String(cipher.doFinal(bytes),Charsets.UTF_8)
+            } catch(_:Exception) {
+                prefs.edit().remove("token_iv").remove("token_cipher").apply()
+                ""
+            }
+        }
+        // Migrate an existing plaintext session token into Android Keystore encryption.
+        val legacy=prefs.getString("token","")?:""
+        if(legacy.isNotBlank())saveSecureToken(legacy)
+        return legacy
+    }
+    private fun clearSecureToken() {
+        getSharedPreferences("chatpro",MODE_PRIVATE).edit()
+            .remove("token").remove("token_iv").remove("token_cipher").apply()
     }
     private fun showHome(tab:String) {
         socket?.disconnect()
@@ -1209,7 +1263,7 @@ class MainActivity : FragmentActivity() {
         content.addView(name);content.addView(about);content.addView(avatar)
         content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
         content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
-        content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
+        content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";clearSecureToken();socket?.disconnect();showAuth()},{header.text=it})})
         content.addView(action("Vincular correo electrónico a esta cuenta"){showLinkEmailDialog()})
         content.addView(action("Cambiar contraseña"){showChangePasswordDialog()})
         content.addView(action("Personalizar apariencia"){showAppearance()})
