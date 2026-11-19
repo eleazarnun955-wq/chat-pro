@@ -17,6 +17,10 @@ import android.widget.Toast
 import io.socket.client.IO
 import io.socket.client.Socket
 import org.json.JSONObject
+import org.json.JSONArray
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.TimeUnit
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.Camera2Enumerator
@@ -86,7 +90,7 @@ class CallActivity : Activity() {
         if (missing.isNotEmpty()) {
             requestPermissions(missing.toTypedArray(), 811)
         } else {
-            initializeCall()
+            loadIceConfigAndInitialize()
         }
     }
 
@@ -151,7 +155,53 @@ class CallActivity : Activity() {
         }
     }
 
-    private fun initializeCall() {
+    private fun loadIceConfigAndInitialize() {
+        Thread {
+            val servers = mutableListOf<PeerConnection.IceServer>()
+            try {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(8, TimeUnit.SECONDS)
+                    .readTimeout(8, TimeUnit.SECONDS)
+                    .build()
+                val request = Request.Builder()
+                    .url(serverUrl.trimEnd('/') + "/api/calls/ice-config")
+                    .header("Authorization", "Bearer " + token)
+                    .get()
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val data = JSONObject(response.body?.string() ?: "{}")
+                        val items = data.optJSONArray("iceServers") ?: JSONArray()
+                        for (i in 0 until items.length()) {
+                            val item = items.optJSONObject(i) ?: continue
+                            val urls = item.opt("urls")
+                            val username = item.optString("username", "")
+                            val credential = item.optString("credential", "")
+                            val urlList = when (urls) {
+                                is JSONArray -> (0 until urls.length()).map { urls.optString(it) }
+                                is String -> listOf(urls)
+                                else -> emptyList()
+                            }
+                            for (url in urlList.filter { it.startsWith("stun:") || it.startsWith("turn:") || it.startsWith("turns:") }) {
+                                val builder = PeerConnection.IceServer.builder(url)
+                                if (username.isNotBlank() && credential.isNotBlank()) {
+                                    builder.setUsername(username).setPassword(credential)
+                                }
+                                servers.add(builder.createIceServer())
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) { }
+            if (servers.isEmpty()) {
+                servers.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+                servers.add(PeerConnection.IceServer.builder("stun:stun.cloudflare.com:3478").createIceServer())
+            }
+            runOnUiThread { initializeCall(servers) }
+        }.start()
+    }
+
+    private fun initializeCall(iceServers: List<PeerConnection.IceServer>) {
         try {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
@@ -167,17 +217,14 @@ class CallActivity : Activity() {
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext))
                 .createPeerConnectionFactory()
 
-            createPeerConnection()
+            createPeerConnection(iceServers)
             connectSignaling()
         } catch (error: Exception) {
             fail("No se pudo preparar la llamada: " + (error.message ?: "error"))
         }
     }
 
-    private fun createPeerConnection() {
-        val iceServers = listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
-        )
+    private fun createPeerConnection(iceServers: List<PeerConnection.IceServer>) {
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
         }
@@ -442,7 +489,7 @@ class CallActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 811 && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-            initializeCall()
+            loadIceConfigAndInitialize()
         } else {
             toast("Se necesita permiso de micrófono y, para video, cámara")
             socket = IO.socket(serverUrl, IO.Options.builder().setAuth(mapOf("token" to token)).build())

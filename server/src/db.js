@@ -3,10 +3,24 @@ import { createHash } from "node:crypto";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SECRET_KEY;
-if (!url || !key) throw new Error("Faltan SUPABASE_URL o SUPABASE_SECRET_KEY en el servidor");
-export const supabase = createClient(url, key, {
-  auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
-});
+export const isConfigured = Boolean(url && key);
+export const missingConfig = [
+  !url ? "SUPABASE_URL" : null,
+  !key ? "SUPABASE_SECRET_KEY" : null
+].filter(Boolean);
+
+// Keep the HTTP process alive while credentials are being configured. Database
+// access remains blocked until both secrets exist; no placeholder credentials
+// are ever sent to Supabase.
+export const supabase = isConfigured
+  ? createClient(url, key, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
+    })
+  : new Proxy({}, {
+      get() {
+        throw new Error("Supabase no está configurado. Faltan: " + missingConfig.join(", "));
+      }
+    });
 const fail = (error) => { if (error) throw new Error(error.message || "Error de Supabase"); };
 const tokenHash = (token) => createHash("sha256").update(token).digest("hex");
 export const publicUser = (u) => u && ({
@@ -104,6 +118,12 @@ export async function listConversations(userId) {
     fail(mErr); fail(lErr); fail(uErr);
     out.push({ id:c.id, type:c.type, title:c.title, members:(members||[]).map(x=>x.user_id), createdBy:c.created_by, createdAt:c.created_at, visibility:c.visibility, description:c.description, unread:unread||0, lastMessage:last?.[0]?{id:last[0].id,text:last[0].body,media:last[0].media,createdAt:last[0].created_at,senderId:last[0].sender_id}:null });
   }
+  // Sort by recent activity, not conversation creation, so active chats stay at the top.
+  out.sort((a,b) => {
+    const aTime = Date.parse(a.lastMessage?.createdAt || a.createdAt || "") || 0;
+    const bTime = Date.parse(b.lastMessage?.createdAt || b.createdAt || "") || 0;
+    return bTime - aTime;
+  });
   return out;
 }
 export async function createConversation({ id, type, title, members, createdBy, visibility="private", description="" }) {
@@ -117,25 +137,78 @@ export async function addConversationMember(conversationId, userId) {
 }
 export async function markConversationRead(conversationId, userId) {
   const now = new Date().toISOString();
-  const { error: memberError } = await supabase.from("conversation_members").update({ last_read_at: now }).eq("conversation_id", conversationId).eq("user_id", userId);
+  const { error: memberError } = await supabase.from("conversation_members")
+    .update({ last_read_at: now }).eq("conversation_id", conversationId).eq("user_id", userId);
   fail(memberError);
-  const { error: messageError } = await supabase.from("messages").update({ read_at: now }).eq("conversation_id", conversationId).neq("sender_id", userId).is("read_at", null);
-  fail(messageError);
+  // Receipts are per recipient: reading a group message must not mark it read for everyone.
+  const { data: unread, error: unreadError } = await supabase.from("messages")
+    .select("id").eq("conversation_id", conversationId).neq("sender_id", userId).is("deleted_at", null);
+  fail(unreadError);
+  const receipts = (unread || []).map(message => ({
+    message_id: message.id, user_id: userId, delivered_at: now, read_at: now
+  }));
+  for (let i = 0; i < receipts.length; i += 500) {
+    const { error } = await supabase.from("message_receipts")
+      .upsert(receipts.slice(i, i + 500), { onConflict: "message_id,user_id" });
+    fail(error);
+  }
   return now;
 }
-export async function listMessages(conversationId, userId) {
-  const { data, error } = await supabase.from("messages").select("*,profiles!messages_sender_id_fkey(*)").eq("conversation_id",conversationId).order("created_at",{ascending:true}).limit(500); fail(error);
-  const ids=(data||[]).map(m=>m.id);
-  const [{data:reactions,error:re},{data:hidden,error:he}] = await Promise.all([
+export async function listMessages(conversationId, userId, before=null, limit=500) {
+  let query = supabase.from("messages").select("*,profiles!messages_sender_id_fkey(*)")
+    .eq("conversation_id",conversationId).order("created_at",{ascending:false}).limit(Math.max(1,Math.min(500,Number(limit)||500)));
+  if(before) query=query.lt("created_at",before);
+  const { data, error } = await query; fail(error);
+  // Return the newest page in chronological order; older pages use the before cursor.
+  const messages=(data||[]).reverse();
+  const ids=messages.map(m=>m.id);
+  const [{data:reactions,error:re},{data:hidden,error:he},{data:receipts,error:receiptError}] = await Promise.all([
     ids.length ? supabase.from("message_reactions").select("message_id,user_id,reaction").in("message_id",ids) : Promise.resolve({data:[],error:null}),
-    userId ? supabase.from("message_hidden_for").select("message_id").eq("user_id",userId).in("message_id",ids) : Promise.resolve({data:[],error:null})
+    userId ? supabase.from("message_hidden_for").select("message_id").eq("user_id",userId).in("message_id",ids) : Promise.resolve({data:[],error:null}),
+    ids.length ? supabase.from("message_receipts").select("message_id,user_id,delivered_at,read_at").in("message_id",ids) : Promise.resolve({data:[],error:null})
   ]);
-  fail(re); fail(he);
+  fail(re); fail(he); fail(receiptError);
   const hiddenIds=new Set((hidden||[]).map(x=>x.message_id));
-  return (data||[]).filter(m=>!hiddenIds.has(m.id)).map(m=>({ id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at, deliveredAt:m.delivered_at, readAt:m.read_at, deletedAt:m.deleted_at||null, deletedBy:m.deleted_by||null, reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) }));
+  const receiptsByMessage=new Map();
+  for(const receipt of receipts||[]){
+    const list=receiptsByMessage.get(receipt.message_id)||[];
+    list.push(receipt);receiptsByMessage.set(receipt.message_id,list);
+  }
+  return messages.filter(m=>!hiddenIds.has(m.id)).map(m=>{
+    const allReceipts=receiptsByMessage.get(m.id)||[];
+    const mine=allReceipts.find(x=>x.user_id===userId);
+    const senderReceipts=allReceipts.filter(x=>x.user_id!==m.sender_id);
+    const latest=(field)=>senderReceipts.map(x=>x[field]).filter(Boolean).sort().at(-1)||null;
+    return { id:m.id, conversationId:m.conversation_id, user:publicUser(m.profiles), text:m.body, media:m.media, createdAt:m.created_at,
+      deliveredAt:m.sender_id===userId?latest("delivered_at"):(mine?.delivered_at||null),
+      readAt:m.sender_id===userId?latest("read_at"):(mine?.read_at||null),
+      receipts:allReceipts.map(x=>({userId:x.user_id,deliveredAt:x.delivered_at,readAt:x.read_at})),
+      deletedAt:m.deleted_at||null, deletedBy:m.deleted_by||null,
+      reactions:(reactions||[]).filter(x=>x.message_id===m.id).map(x=>({userId:x.user_id,reaction:x.reaction})) };
+  });
+}
+export async function searchConversationMessages(conversationId,userId,term) {
+  const { data: rows, error } = await supabase.from("messages")
+    .select("id,conversation_id,sender_id,body,created_at,media,profiles!messages_sender_id_fkey(*)")
+    .eq("conversation_id",conversationId).ilike("body", "%" + term.replace(/[%,_]/g, "") + "%")
+    .is("deleted_at",null).order("created_at",{ascending:false}).limit(100);
+  fail(error);
+  const { data:hidden,error:he } = await supabase.from("message_hidden_for").select("message_id").eq("user_id",userId);
+  fail(he);
+  const hiddenIds=new Set((hidden||[]).map(x=>x.message_id));
+  return (rows||[]).filter(x=>!hiddenIds.has(x.id)).map(x=>({id:x.id,text:x.body,createdAt:x.created_at,user:publicUser(x.profiles)}));
 }
 export async function getMessage(id) {
   const { data,error } = await supabase.from("messages").select("id,conversation_id,sender_id,created_at,deleted_at").eq("id",id).maybeSingle(); fail(error); return data;
+}
+export async function editMessage(messageId,userId,text) {
+  const {data,error}=await supabase.from("messages")
+    .update({body:text})
+    .eq("id",messageId).eq("sender_id",userId).is("deleted_at",null)
+    .select("id,conversation_id,body").maybeSingle();
+  fail(error);
+  if(!data) throw new Error("No se pudo editar: el mensaje ya no existe o no te pertenece");
+  return data;
 }
 export async function deleteMessageForUser(messageId,userId) {
   const {error}=await supabase.from("message_hidden_for").upsert({message_id:messageId,user_id:userId},{onConflict:"message_id,user_id"}); fail(error);
@@ -184,10 +257,23 @@ export async function toggleMessageReaction(messageId,userId,reaction) {
   const { data,error } = await supabase.from("message_reactions").select("user_id,reaction").eq("message_id",messageId); fail(error); return data||[];
 }
 export async function markConversationDelivered(conversationId,userId) {
-  const { error } = await supabase.from("messages").update({delivered_at:new Date().toISOString()}).eq("conversation_id",conversationId).neq("sender_id",userId).is("delivered_at",null); fail(error);
+  const now=new Date().toISOString();
+  const {data:rows,error}=await supabase.from("messages").select("id")
+    .eq("conversation_id",conversationId).neq("sender_id",userId).is("deleted_at",null);
+  fail(error);
+  const receipts=(rows||[]).map(row=>({message_id:row.id,user_id:userId,delivered_at:now}));
+  for(let i=0;i<receipts.length;i+=500){
+    const {error:writeError}=await supabase.from("message_receipts")
+      .upsert(receipts.slice(i,i+500),{onConflict:"message_id,user_id"});
+    fail(writeError);
+  }
 }
-export async function markMessageDelivered(messageId,conversationId,senderId) {
-  const { error } = await supabase.from("messages").update({delivered_at:new Date().toISOString()}).eq("id",messageId).eq("conversation_id",conversationId).neq("sender_id",senderId).is("delivered_at",null); fail(error);
+export async function markMessageDelivered(messageId,conversationId,recipientId) {
+  const now=new Date().toISOString();
+  const {error}=await supabase.from("message_receipts").upsert({
+    message_id:messageId,user_id:recipientId,delivered_at:now
+  },{onConflict:"message_id,user_id"});
+  fail(error);
 }
 export async function updateLastSeen(userId) {
   const { error } = await supabase.from("profiles").update({last_seen_at:new Date().toISOString()}).eq("id",userId); fail(error);

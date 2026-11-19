@@ -44,13 +44,15 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : FragmentActivity() {
-    private val bg=Color.rgb(13,16,29)
-    private val panel=Color.rgb(25,30,49)
-    private var accent=Color.rgb(154,111,255)
+    private val bg=Color.rgb(17,27,33)
+    private val panel=Color.rgb(32,44,51)
+    private var accent=Color.rgb(37,211,102)
     private val http=OkHttpClient.Builder().connectTimeout(25,TimeUnit.SECONDS).readTimeout(90,TimeUnit.SECONDS).build()
-    private val defaultBaseUrl="https://chat-pro-server-qhjw.onrender.com"
+    private val defaultBaseUrl="https://chat-pro-server-2-2-0.onrender.com"
     private var baseUrl=defaultBaseUrl
     private var token=""
     private var me=JSONObject()
@@ -84,8 +86,8 @@ class MainActivity : FragmentActivity() {
             p.edit().remove("server_url").apply()
             defaultBaseUrl
         }
-        accent=p.getInt("accent_color",Color.rgb(154,111,255))
-        token=p.getString("token","")?:""
+        accent=p.getInt("accent_color",Color.rgb(37,211,102))
+        token=readSecureToken()
         setupMessageNotifications()
         if(token.isNotBlank()) {
             val savedPin=p.getString("app_pin","")?:""
@@ -129,7 +131,7 @@ class MainActivity : FragmentActivity() {
                     val data=JSONObject(res.body?.string()?: "{}")
                     if(!res.isSuccessful)throw Exception(data.optString("error","HTTP ${res.code}"))
                     token=data.optString("token");me=data.optJSONObject("user")?:JSONObject()
-                    getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("token",token).apply()
+                    saveSecureToken(token)
                     runOnUiThread{showHome("Chats")}
                 }
             } catch(e:Exception){runOnUiThread{header.text=e.message?: "No se pudo iniciar sesión"}}
@@ -156,7 +158,62 @@ class MainActivity : FragmentActivity() {
             }catch(e:Exception){runOnUiThread{fail(e.message?:"Error de conexión")}}
         }.start()
     }
+    private fun tokenKey():javax.crypto.SecretKey {
+        val alias="chatpro_session_key_v220"
+        val store=java.security.KeyStore.getInstance("AndroidKeyStore").apply{load(null)}
+        val existing=store.getKey(alias,null) as? javax.crypto.SecretKey
+        if(existing!=null)return existing
+        val generator=javax.crypto.KeyGenerator.getInstance(
+            android.security.keystore.KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore")
+        val spec=android.security.keystore.KeyGenParameterSpec.Builder(
+            alias,
+            android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT
+        ).setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setRandomizedEncryptionRequired(true).build()
+        generator.init(spec)
+        return generator.generateKey()
+    }
+    private fun saveSecureToken(value:String) {
+        try {
+            val cipher=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE,tokenKey())
+            val encrypted=cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+            val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+            prefs.edit().remove("token")
+                .putString("token_iv",android.util.Base64.encodeToString(cipher.iv,android.util.Base64.NO_WRAP))
+                .putString("token_cipher",android.util.Base64.encodeToString(encrypted,android.util.Base64.NO_WRAP))
+                .apply()
+        } catch(error:Exception) {
+            runOnUiThread { toast("No se pudo proteger la sesión en este teléfono") }
+        }
+    }
+    private fun readSecureToken():String {
+        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+        val encrypted=prefs.getString("token_cipher","")?:""
+        if(encrypted.isNotBlank()) {
+            return try {
+                val iv=android.util.Base64.decode(prefs.getString("token_iv",""),android.util.Base64.NO_WRAP)
+                val bytes=android.util.Base64.decode(encrypted,android.util.Base64.NO_WRAP)
+                val cipher=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(javax.crypto.Cipher.DECRYPT_MODE,tokenKey(),javax.crypto.spec.GCMParameterSpec(128,iv))
+                String(cipher.doFinal(bytes),Charsets.UTF_8)
+            } catch(_:Exception) {
+                prefs.edit().remove("token_iv").remove("token_cipher").apply()
+                ""
+            }
+        }
+        // Migrate an existing plaintext session token into Android Keystore encryption.
+        val legacy=prefs.getString("token","")?:""
+        if(legacy.isNotBlank())saveSecureToken(legacy)
+        return legacy
+    }
+    private fun clearSecureToken() {
+        getSharedPreferences("chatpro",MODE_PRIVATE).edit()
+            .remove("token").remove("token_iv").remove("token_cipher").apply()
+    }
     private fun showHome(tab:String) {
+        registerPushToken()
         socket?.disconnect()
         connectCallSocket()
         // Navegación inferior moderna inspirada en mensajería: Chats, Contactos, Estados y Llamadas.
@@ -174,7 +231,7 @@ class MainActivity : FragmentActivity() {
             orientation=LinearLayout.VERTICAL
         }
         brand.addView(TextView(this).apply {
-            text="CHAT PRO";textSize=23f;setTextColor(Color.WHITE);typeface=android.graphics.Typeface.DEFAULT_BOLD
+            text="CHAT PRO";textSize=25f;setTextColor(Color.WHITE);typeface=android.graphics.Typeface.DEFAULT_BOLD;letterSpacing=0.02f
         })
         brand.addView(TextView(this).apply {
             text=me.optString("name","Usuario")+"  ·  @"+me.optString("username","")
@@ -184,15 +241,15 @@ class MainActivity : FragmentActivity() {
         val profile=TextView(this).apply {
             text="👤";textSize=22f;gravity=Gravity.CENTER
             setTextColor(Color.WHITE);setPadding(13,9,13,9)
-            background=GradientDrawable().apply{setColor(Color.argb(210,35,42,65));cornerRadius=24f;setStroke(1,Color.argb(150,Color.red(accent),Color.green(accent),Color.blue(accent)))}
+            background=GradientDrawable().apply{setColor(Color.argb(255,42,57,66));cornerRadius=24f;setStroke(1,Color.argb(150,Color.red(accent),Color.green(accent),Color.blue(accent)))}
             contentDescription="Abrir perfil"
             setOnClickListener{showHome("Perfil")}
         }
         topBar.addView(profile,LinearLayout.LayoutParams(48,48))
         root.addView(topBar)
         header=TextView(this).apply {
-            text="";textSize=12f;setTextColor(Color.LTGRAY)
-            setPadding(5,5,5,7)
+            text="";textSize=12f;setTextColor(Color.rgb(134,150,156))
+            setPadding(5,5,5,9)
         }
         root.addView(header)
         val mainScroll=ScrollView(this)
@@ -205,10 +262,10 @@ class MainActivity : FragmentActivity() {
         val bottom=LinearLayout(this).apply {
             orientation=LinearLayout.HORIZONTAL
             gravity=Gravity.CENTER
-            setPadding(4,7,4,4)
+            setPadding(5,8,5,5)
             background=GradientDrawable().apply {
-                setColor(Color.argb(235,20,25,43));cornerRadius=24f
-                setStroke(1,Color.argb(110,125,135,170))
+                setColor(Color.rgb(32,44,51));cornerRadius=22f
+                setStroke(1,Color.rgb(48,66,74))
             }
         }
         val tabs=listOf(
@@ -224,8 +281,8 @@ class MainActivity : FragmentActivity() {
                 gravity=Gravity.CENTER
                 setPadding(3,7,3,7)
                 background=GradientDrawable().apply {
-                    setColor(if(selected)Color.argb(75,Color.red(accent),Color.green(accent),Color.blue(accent)) else Color.TRANSPARENT)
-                    cornerRadius=18f
+                    setColor(if(selected)Color.argb(48,Color.red(accent),Color.green(accent),Color.blue(accent)) else Color.TRANSPARENT)
+                    cornerRadius=16f
                 }
                 setOnClickListener{showHome(destination)}
             }
@@ -252,6 +309,21 @@ class MainActivity : FragmentActivity() {
             "Perfil"->showProfile()
         }
     }
+    private fun registerPushToken() {
+        if(token.isBlank()||FirebaseApp.getApps(this).isEmpty())return
+        try {
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                if(!task.isSuccessful)return@addOnCompleteListener
+                val fcmToken=task.result?:return@addOnCompleteListener
+                getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("fcm_token",fcmToken).apply()
+                api("POST","/api/push/devices",JSONObject().put("fcmToken",fcmToken),{},{error->
+                    android.util.Log.w("CHATPRO-PUSH","No se pudo registrar el dispositivo: $error")
+                })
+            }
+        } catch(error:Exception) {
+            android.util.Log.w("CHATPRO-PUSH","Firebase Messaging no está configurado",error)
+        }
+    }
     private fun showCalls() {
         content.removeAllViews()
         header.text="Llamadas de voz y videollamadas · abre un chat privado para llamar"
@@ -274,21 +346,119 @@ class MainActivity : FragmentActivity() {
     }
     private fun loadConversations() {
         header.text="Tus conversaciones privadas y grupos"
+        content.removeAllViews()
+
+        val search=field("Buscar chats o mensajes")
+        search.setSingleLine(true)
+        content.addView(search)
+        val list=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(0,4,0,8)
+        }
+        content.addView(list)
+
         api("GET","/api/conversations",null,{data->
-            content.removeAllViews()
             val arr=data.optJSONArray("conversations")?:JSONArray()
-            if(arr.length()==0)content.addView(note("Aún no tienes chats. Entra a Contactos para buscar personas."))
-            for(i in 0 until arr.length()){
-                val c=arr.optJSONObject(i)?:continue
-                val id=c.optString("id")
-                val title=c.optString("title").ifBlank{if(c.optString("type")=="group")"Grupo" else "Chat privado"}
-                val unread=c.optInt("unread",0)
-                val unreadLabel=if(unread>0)"  ·  $unread sin leer" else ""
-                val memberIds=c.optJSONArray("members")?:JSONArray()
-                val myId=me.optString("id")
-                val peerId=(0 until memberIds.length()).map{memberIds.optString(it)}.firstOrNull{it.isNotBlank()&&it!=myId}?: ""
-                content.addView(action("✉  $title  ·  ${c.optString("type")}$unreadLabel"){openConversation(id,title,peerId,c.optString("type"))})
+            fun render(query:String) {
+                list.removeAllViews()
+                val needle=query.trim().lowercase()
+                var shown=0
+                for(i in 0 until arr.length()){
+                    val c=arr.optJSONObject(i)?:continue
+                    val id=c.optString("id")
+                    val title=c.optString("title").ifBlank{if(c.optString("type")=="group")"Grupo" else if(c.optString("type")=="room")"Sala" else "Chat privado"}
+                    val type=c.optString("type")
+                    val last=c.optJSONObject("lastMessage")
+                    val preview=when {
+                        last==null -> "Toca para comenzar a conversar"
+                        last.optString("text").isNotBlank() -> last.optString("text")
+                        last.optJSONObject("media")!=null -> "📎 Archivo multimedia"
+                        else -> "Mensaje"
+                    }
+                    if(needle.isNotBlank()&&!title.lowercase().contains(needle)&&!preview.lowercase().contains(needle))continue
+                    shown++
+                    val unread=c.optInt("unread",0)
+                    val members=c.optJSONArray("members")?:JSONArray()
+                    val myId=me.optString("id")
+                    val peerId=(0 until members.length()).map{members.optString(it)}.firstOrNull{it.isNotBlank()&&it!=myId}?: ""
+                    val row=LinearLayout(this).apply {
+                        orientation=LinearLayout.HORIZONTAL
+                        gravity=Gravity.CENTER_VERTICAL
+                        setPadding(12,12,12,12)
+                        background=GradientDrawable().apply {
+                            setColor(Color.argb(245,32,44,51))
+                            cornerRadius=18f
+                            setStroke(1,Color.argb(65,150,150,180))
+                        }
+                        setOnClickListener{openConversation(id,title,peerId,type)}
+                    }
+                    val avatar=TextView(this).apply {
+                        text=title.trim().take(1).uppercase().ifBlank{"C"}
+                        textSize=20f
+                        gravity=Gravity.CENTER
+                        setTextColor(Color.WHITE)
+                        typeface=android.graphics.Typeface.DEFAULT_BOLD
+                        background=GradientDrawable().apply {
+                            setColor(Color.argb(190,Color.red(accent),Color.green(accent),Color.blue(accent)))
+                            shape=GradientDrawable.OVAL
+                        }
+                    }
+                    row.addView(avatar,LinearLayout.LayoutParams(48,48))
+                    val details=LinearLayout(this).apply {
+                        orientation=LinearLayout.VERTICAL
+                        setPadding(12,0,8,0)
+                    }
+                    val titleView=TextView(this).apply {
+                        text=title
+                        textSize=15f
+                        setTextColor(Color.WHITE)
+                        typeface=android.graphics.Typeface.DEFAULT_BOLD
+                        maxLines=1
+                    }
+                    val previewView=TextView(this).apply {
+                        text=preview
+                        textSize=12f
+                        setTextColor(Color.LTGRAY)
+                        maxLines=1
+                    }
+                    details.addView(titleView)
+                    details.addView(previewView)
+                    row.addView(details,LinearLayout.LayoutParams(0,-2,1f))
+                    val time=last?.optString("createdAt","")?: ""
+                    if(time.length>=16){
+                        val clock=TextView(this).apply {
+                            text=time.substring(11,16)
+                            textSize=10f
+                            gravity=Gravity.CENTER
+                            setTextColor(Color.LTGRAY)
+                            setPadding(4,0,4,0)
+                        }
+                        row.addView(clock)
+                    }
+                    if(unread>0){
+                        val badge=TextView(this).apply {
+                            text=if(unread>99)"99+" else unread.toString()
+                            textSize=11f
+                            gravity=Gravity.CENTER
+                            setTextColor(Color.WHITE)
+                            setPadding(8,5,8,5)
+                            background=GradientDrawable().apply {
+                                setColor(accent)
+                                cornerRadius=30f
+                            }
+                        }
+                        row.addView(badge)
+                    }
+                    list.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=7})
+                }
+                if(shown==0)list.addView(note(if(needle.isBlank())"Aún no tienes chats. Entra a Contactos para buscar personas." else "No hay conversaciones que coincidan con «$query»."))
             }
+            render("")
+            search.addTextChangedListener(object:android.text.TextWatcher {
+                override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int) {}
+                override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { render(s?.toString()?: "") }
+                override fun afterTextChanged(s:android.text.Editable?) {}
+            })
         },{header.text=it})
     }
     private fun createRoomDialog(visibility:String) {
@@ -385,17 +555,100 @@ class MainActivity : FragmentActivity() {
             callRow.addView(action("🎥 Videollamada"){startCall("video")},LinearLayout.LayoutParams(0,54,1f))
             root.addView(callRow)
         }
+        root.addView(action("🔎 Buscar dentro de esta conversación"){searchConversationDialog(id)})
         root.addView(action("Cambiar fondo de este chat"){chooseWallpaper("chat_wallpaper_"+id)})
-        root.addView(action("Agregar integrante al grupo o sala privada"){addConversationMemberDialog(id)})
+        if(conversationType=="group"||conversationType=="room") {
+            root.addView(action("👥 Administrar grupo y miembros"){manageConversationMembers(id)})
+            root.addView(action("＋ Agregar integrante"){addConversationMemberDialog(id)})
+        }
+        root.addView(action("⭐ Ver favoritos y mensajes fijados"){showSavedMessages()})
         root.addView(action("🧹 Limpiar historial"){confirmClearConversationHistory(id)})
         applyWallpaper("chat_wallpaper_"+id)
         api("GET","/api/conversations/$id/messages",null,{data->
-            content.removeAllViews()
             val arr=data.optJSONArray("messages")?:JSONArray()
-            for(i in 0 until arr.length())renderConversationMessage(arr.optJSONObject(i)?:continue)
+            val messages=(0 until arr.length()).mapNotNull{arr.optJSONObject(it)}
+            showConversationHistory(id,messages,messages.size>=500)
             api("POST","/api/conversations/$id/read",JSONObject(),{},{})
             header.text="Conectando al chat en tiempo real…";connectConversation()
         },{header.text=it})
+    }
+    private fun showConversationHistory(conversationId:String,messages:List<JSONObject>,canLoadOlder:Boolean) {
+        content.removeAllViews()
+        if(canLoadOlder&&messages.isNotEmpty()) {
+            content.addView(action("⬆ Cargar mensajes anteriores") {
+                val cursor=messages.first().optString("createdAt")
+                api("GET","/api/conversations/$conversationId/messages?before="+Uri.encode(cursor)+"&limit=500",null,{data->
+                    val arr=data.optJSONArray("messages")?:JSONArray()
+                    val older=(0 until arr.length()).mapNotNull{arr.optJSONObject(it)}
+                    if(older.isEmpty()) {
+                        toast("Ya llegaste al inicio de la conversación")
+                        showConversationHistory(conversationId,messages,false)
+                    } else {
+                        showConversationHistory(conversationId,older+messages,older.size>=500)
+                    }
+                },{toast("No se pudieron cargar mensajes anteriores: $it")})
+            })
+        }
+        messages.forEach{renderConversationMessage(it)}
+    }
+    private fun showSavedMessages() {
+        api("GET","/api/bookmarks",null,{data->
+            val arr=data.optJSONArray("bookmarks")?:JSONArray()
+            if(arr.length()==0){toast("Todavía no tienes mensajes guardados");return@api}
+            val labels=(0 until arr.length()).map{idx->
+                val row=arr.optJSONObject(idx)?:JSONObject()
+                val msg=row.optJSONObject("messages")?:JSONObject()
+                val pin=if(row.optBoolean("is_pinned"))"📌 " else "⭐ "
+                pin+msg.optString("body","Mensaje").take(85)
+            }.toTypedArray()
+            AlertDialog.Builder(this).setTitle("Tus mensajes guardados").setItems(labels){_,which->
+                val row=arr.optJSONObject(which)?:return@setItems
+                val msg=row.optJSONObject("messages")?:JSONObject()
+                AlertDialog.Builder(this).setMessage(msg.optString("body","Archivo multimedia"))
+                    .setPositiveButton("Quitar de guardados"){_,_->api("DELETE","/api/messages/${msg.optString("id")}/bookmark",null,{toast("Eliminado de guardados")},{toast(it)})}
+                    .setNegativeButton("Cerrar",null).show()
+            }.show()
+        },{toast(it)})
+    }
+    private fun searchConversationDialog(conversationId:String) {
+        val query=field("Escribe una palabra o frase")
+        AlertDialog.Builder(this).setTitle("Buscar en mensajes").setView(query)
+            .setNegativeButton("Cerrar",null).setPositiveButton("Buscar"){_,_->
+                val term=query.text.toString().trim()
+                if(term.length<2){toast("Escribe al menos 2 caracteres");return@setPositiveButton}
+                api("GET","/api/conversations/$conversationId/search?q="+Uri.encode(term),null,{data->
+                    val arr=data.optJSONArray("messages")?:JSONArray()
+                    if(arr.length()==0){toast("No encontré mensajes");return@api}
+                    val labels=(0 until arr.length()).map{idx->
+                        val m=arr.optJSONObject(idx)?:JSONObject()
+                        val author=m.optJSONObject("user")?.optString("name","Usuario")?: "Usuario"
+                        "$author · "+m.optString("text").take(100)
+                    }.toTypedArray()
+                    AlertDialog.Builder(this).setTitle("Resultados: ${arr.length()}")
+                        .setItems(labels){_,idx->
+                            val m=arr.optJSONObject(idx)?:return@setItems
+                            val date=m.optString("createdAt").replace("T"," ").take(16)
+                            AlertDialog.Builder(this).setMessage(m.optString("text")+"\n\n"+date)
+                                .setPositiveButton("Entendido",null).show()
+                        }.show()
+                },{toast("No se pudo buscar: $it")})
+            }.show()
+    }
+    private fun forwardMessageDialog(messageId:String) {
+        api("GET","/api/conversations",null,{data->
+            val arr=data.optJSONArray("conversations")?:JSONArray()
+            val targets=mutableListOf<JSONObject>();val labels=mutableListOf<String>()
+            for(i in 0 until arr.length()){
+                val c=arr.optJSONObject(i)?:continue
+                if(c.optString("id")==currentConversation)continue
+                targets.add(c);labels.add(c.optString("title").ifBlank{"Conversación"})
+            }
+            if(targets.isEmpty()){toast("No tienes otro chat para reenviar");return@api}
+            AlertDialog.Builder(this).setTitle("Reenviar a…").setItems(labels.toTypedArray()){_,which->
+                val target=targets[which]
+                api("POST","/api/messages/$messageId/forward",JSONObject().put("conversationId",target.optString("id")),{toast("Mensaje reenviado")},{toast("No se pudo reenviar: $it")})
+            }.show()
+        },{toast(it)})
     }
     private fun confirmClearConversationHistory(conversationId:String) {
         AlertDialog.Builder(this)
@@ -409,9 +662,56 @@ class MainActivity : FragmentActivity() {
                 },{toast("No se pudo limpiar el historial: $it")})
             }.show()
     }
+    private fun manageConversationMembers(conversationId:String) {
+        api("GET","/api/conversations/$conversationId/members",null,{data->
+            val arr=data.optJSONArray("members")?:JSONArray()
+            if(arr.length()==0){toast("No hay integrantes para mostrar");return@api}
+            val labels=(0 until arr.length()).map{index->
+                val row=arr.optJSONObject(index)?:JSONObject()
+                val user=row.optJSONObject("user")?:JSONObject()
+                val role=row.optString("role","member")
+                val suffix=when(role){"owner"->" · Propietario";"admin"->" · Administrador";"moderator"->" · Moderador";else->" · Miembro"}
+                user.optString("name","Usuario")+suffix
+            }.toTypedArray()
+            AlertDialog.Builder(this).setTitle("Integrantes del grupo").setItems(labels){_,which->
+                val row=arr.optJSONObject(which)?:return@setItems
+                val user=row.optJSONObject("user")?:return@setItems
+                val userId=user.optString("id")
+                val role=row.optString("role","member")
+                val isSelf=userId==me.optString("id")
+                val canManage=data.optBoolean("canManage")
+                val isOwner=data.optBoolean("isOwner")
+                if(isSelf) {
+                    val actions=if(role=="owner") arrayOf("Cerrar") else arrayOf("Salir del grupo","Cerrar")
+                    AlertDialog.Builder(this).setTitle("Tu participación").setItems(actions){_,choice->
+                        if(choice==0&&role!="owner") {
+                            api("DELETE","/api/conversations/$conversationId/members/$userId",null,{toast("Saliste del grupo");showHome("Chats")},{toast(it)})
+                        }
+                    }.show()
+                } else if(canManage) {
+                    val actions=if(isOwner) arrayOf("Transferir propiedad","Hacer administrador","Hacer moderador","Dejar como miembro","Quitar integrante","Cerrar")
+                        else arrayOf("Quitar integrante","Cerrar")
+                    AlertDialog.Builder(this).setTitle(user.optString("name","Integrante")).setItems(actions){_,choice->
+                        if(isOwner&&choice==0) {
+                            AlertDialog.Builder(this).setMessage("¿Transferir la propiedad del grupo a ${user.optString("name","este integrante")}? Tu cuenta pasará a ser administradora.")
+                                .setNegativeButton("Cancelar",null)
+                                .setPositiveButton("Transferir"){_,_->api("PATCH","/api/conversations/$conversationId/owner",JSONObject().put("userId",userId),{toast("Propiedad transferida")},{toast(it)})}.show()
+                        } else if(isOwner&&choice in 1..3) {
+                            val nextRole=when(choice){1->"admin";2->"moderator";else->"member"}
+                            api("PATCH","/api/conversations/$conversationId/members/$userId/role",JSONObject().put("role",nextRole),{toast("Rol actualizado")},{toast(it)})
+                        } else if((isOwner&&choice==4)||(!isOwner&&choice==0)) {
+                            AlertDialog.Builder(this).setMessage("¿Quitar a ${user.optString("name","este integrante")} del grupo?")
+                                .setNegativeButton("Cancelar",null)
+                                .setPositiveButton("Quitar"){_,_->api("DELETE","/api/conversations/$conversationId/members/$userId",null,{toast("Integrante retirado");manageConversationMembers(conversationId)},{toast(it)})}.show()
+                        }
+                    }.show()
+                }
+            }.setNegativeButton("Cerrar",null).show()
+        },{toast("No se pudo cargar el grupo: $it")})
+    }
     private fun addConversationMemberDialog(conversationId:String) {
         val username=field("Nombre de usuario a invitar")
-        AlertDialog.Builder(this).setTitle("Agregar integrante").setMessage("Solo el creador del grupo o sala puede agregar participantes.").setView(username)
+        AlertDialog.Builder(this).setTitle("Agregar integrante").setMessage("Los propietarios, administradores y moderadores autorizados pueden invitar integrantes.").setView(username)
             .setNegativeButton("Cancelar",null).setPositiveButton("Buscar e invitar"){_,_->
                 val term=username.text.toString().trim().removePrefix("@").lowercase()
                 if(!term.matches(Regex("[a-z0-9_.-]{3,24}"))){toast("Escribe un usuario válido");return@setPositiveButton}
@@ -457,6 +757,7 @@ class MainActivity : FragmentActivity() {
                 runOnUiThread{renderConversationMessage(obj)}
             }
             socket?.on("message:reaction"){runOnUiThread{refreshConversationMessages()}}
+            socket?.on("message:edited"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("message:deleted"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("message:hidden"){runOnUiThread{refreshConversationMessages()}}
             socket?.on("conversation:read"){runOnUiThread{refreshConversationMessages()}}
@@ -515,7 +816,41 @@ class MainActivity : FragmentActivity() {
         val notification=builder.setSmallIcon(android.R.drawable.sym_action_chat).setContentTitle(sender).setContentText(body).setAutoCancel(true).setContentIntent(pending).build()
         try { (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify((conversationId+sender).hashCode(),notification) } catch(_:Exception) {}
     }
-    private fun hashPin(value:String):String = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+    private fun hashPin(value:String,salt:String):String {
+        val saltBytes=android.util.Base64.decode(salt,android.util.Base64.NO_WRAP)
+        val spec=javax.crypto.spec.PBEKeySpec(value.toCharArray(),saltBytes,150000,256)
+        return try {
+            javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec).encoded.joinToString("") { "%02x".format(it) }
+        } finally { spec.clearPassword() }
+    }
+    private fun verifyPin(value:String):Boolean {
+        val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
+        val now=System.currentTimeMillis()
+        if(prefs.getLong("pin_lock_until",0L)>now)return false
+        val saved=prefs.getString("app_pin","")?:""
+        val salt=prefs.getString("app_pin_salt","")?:""
+        val valid=if(salt.isNotBlank()) {
+            try { hashPin(value,salt)==saved } catch(_:Exception) { false }
+        } else {
+            val legacy=java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            if(saved==value||saved==legacy) {
+                val newSalt=ByteArray(16).also{java.security.SecureRandom().nextBytes(it)}
+                val encoded=android.util.Base64.encodeToString(newSalt,android.util.Base64.NO_WRAP)
+                prefs.edit().putString("app_pin_salt",encoded).putString("app_pin",hashPin(value,encoded)).apply()
+                true
+            } else false
+        }
+        if(valid) prefs.edit().remove("pin_failures").remove("pin_lock_until").apply()
+        else {
+            val failures=prefs.getInt("pin_failures",0)+1
+            val edit=prefs.edit().putInt("pin_failures",failures)
+            if(failures>=5)edit.putLong("pin_lock_until",now+30000L).putInt("pin_failures",0)
+            edit.apply()
+        }
+        return valid
+    }
     private fun showSecurityGate(onUnlock:()->Unit) {
         val prefs=getSharedPreferences("chatpro",MODE_PRIVATE)
         val savedPin=prefs.getString("app_pin","")?:""
@@ -542,7 +877,7 @@ class MainActivity : FragmentActivity() {
         AlertDialog.Builder(this).setTitle("CHAT PRO bloqueado").setMessage("Introduce tu PIN para continuar.").setView(pin)
             .setCancelable(false).setPositiveButton("Desbloquear"){_,_->
                 val saved=getSharedPreferences("chatpro",MODE_PRIVATE).getString("app_pin","")?:""
-                if(hashPin(pin.text.toString())==saved)onUnlock() else { toast("PIN incorrecto");showPinGate(onUnlock) }
+                if(verifyPin(pin.text.toString()))onUnlock() else { toast(if(getSharedPreferences("chatpro",MODE_PRIVATE).getLong("pin_lock_until",0L)>System.currentTimeMillis())"Demasiados intentos. Espera 30 segundos." else "PIN incorrecto");showPinGate(onUnlock) }
             }.show()
     }
     private fun showPinSettings() {
@@ -552,7 +887,7 @@ class MainActivity : FragmentActivity() {
             AlertDialog.Builder(this).setTitle("Bloqueo con PIN").setMessage("El bloqueo está activado.")
                 .setItems(arrayOf("Cambiar PIN","Desactivar bloqueo")){_,which->
                     if(which==0) promptNewPin() else AlertDialog.Builder(this).setTitle("Desactivar bloqueo").setMessage("¿Quitar el PIN de este teléfono?")
-                        .setNegativeButton("Cancelar",null).setPositiveButton("Desactivar"){_,_->prefs.edit().remove("app_pin").remove("biometric_enabled").apply();toast("Bloqueo desactivado")}.show()
+                        .setNegativeButton("Cancelar",null).setPositiveButton("Desactivar"){_,_->prefs.edit().remove("app_pin").remove("app_pin_salt").remove("pin_failures").remove("pin_lock_until").remove("biometric_enabled").apply();toast("Bloqueo desactivado")}.show()
                 }.show()
         } else promptNewPin()
     }
@@ -588,7 +923,11 @@ class MainActivity : FragmentActivity() {
             .setView(box).setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->
                 val p=pin.text.toString()
                 if(!p.matches(Regex("[0-9]{4,8}"))||p!=confirm.text.toString()) { toast("El PIN debe tener 4 a 8 dígitos y coincidir");return@setPositiveButton }
-                getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("app_pin",p).apply()
+                val saltBytes=ByteArray(16).also{java.security.SecureRandom().nextBytes(it)}
+                val salt=android.util.Base64.encodeToString(saltBytes,android.util.Base64.NO_WRAP)
+                getSharedPreferences("chatpro",MODE_PRIVATE).edit()
+                    .putString("app_pin_salt",salt).putString("app_pin",hashPin(p,salt))
+                    .remove("pin_failures").remove("pin_lock_until").apply()
                 toast("Bloqueo con PIN activado. Se solicitará al abrir CHAT PRO.")
             }.show()
     }
@@ -651,8 +990,18 @@ class MainActivity : FragmentActivity() {
     }
     private fun showRoomUserActions(userId:String,name:String) {
         if(userId.isBlank()||userId==me.optString("id"))return
-        AlertDialog.Builder(this).setTitle(name).setItems(arrayOf("Iniciar chat privado","Compartir audio o imagen")){_,which->
-            createConversation(userId,name,which==1)
+        AlertDialog.Builder(this).setTitle(name).setItems(arrayOf("Iniciar chat privado","Compartir audio o imagen","Bloquear usuario","Reportar usuario")){_,which->
+            when(which){
+                0->createConversation(userId,name,false)
+                1->createConversation(userId,name,true)
+                2->AlertDialog.Builder(this).setMessage("No recibirás ni podrás iniciar conversaciones con esta persona.")
+                    .setNegativeButton("Cancelar",null).setPositiveButton("Bloquear"){_,_->api("POST","/api/users/$userId/block",JSONObject(),{toast("Usuario bloqueado")},{toast(it)})}.show()
+                3->{
+                    val reason=field("Describe el motivo del reporte")
+                    AlertDialog.Builder(this).setTitle("Reportar usuario").setView(reason)
+                        .setNegativeButton("Cancelar",null).setPositiveButton("Enviar reporte"){_,_->api("POST","/api/users/$userId/report",JSONObject().put("reason",reason.text.toString()),{toast("Reporte enviado")},{toast(it)})}.show()
+                }
+            }
         }.show()
     }
     private fun chooseShareMedia() {
@@ -692,6 +1041,33 @@ class MainActivity : FragmentActivity() {
         val s=socket
         if(s==null||!s.connected()){toast("Espera a que el chat conecte");return}
         s.emit("conversation:send",JSONObject().put("text",text));composer.setText("")
+    }
+    private fun showMessageActions(obj:JSONObject,mine:Boolean) {
+        val messageId=obj.optString("id")
+        val author=obj.optJSONObject("user")?.optString("name")?: "Usuario"
+        val body=obj.optString("text")
+        val options=mutableListOf("Responder","Copiar texto","Compartir mensaje","Guardar/Quitar de favoritos","Fijar/Desfijar mensaje","Reenviar a otro chat")
+        if(mine && body.isNotBlank())options.add("Editar mensaje")
+        options.add(if(mine)"Eliminar mensaje" else "Eliminar para mí")
+        AlertDialog.Builder(this).setTitle("Mensaje de $author").setItems(options.toTypedArray()){_,which->
+            when(which){
+                0->{composer.setText("↪ $author: "+body+"\n");composer.setSelection(composer.text.length);composer.requestFocus()}
+                1->{if(body.isBlank())toast("Este mensaje no contiene texto para copiar") else {val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager;clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Mensaje de $author",body));toast("Texto copiado")}}
+                2->{val share=Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_TEXT,"$author: $body")};startActivity(Intent.createChooser(share,"Compartir mensaje"))}
+                3->{
+                    AlertDialog.Builder(this).setTitle("Favoritos").setItems(arrayOf("Guardar","Quitar")){_,choice->
+                        if(choice==0)api("POST","/api/messages/$messageId/bookmark",JSONObject().put("pinned",false),{toast("Guardado y sincronizado en tus dispositivos")},{toast(it)})
+                        else api("DELETE","/api/messages/$messageId/bookmark",null,{toast("Quitado de favoritos")},{toast(it)})
+                    }.show()
+                }
+                4->AlertDialog.Builder(this).setTitle("Mensaje fijado").setItems(arrayOf("Fijar mensaje","Desfijar mensaje")){_,choice->
+                    api("POST","/api/messages/$messageId/bookmark",JSONObject().put("pinned",choice==0),{toast(if(choice==0)"Mensaje fijado y sincronizado" else "Mensaje desfijado")},{toast(it)})
+                }.show()
+                5->forwardMessageDialog(messageId)
+                6->{if(mine && body.isNotBlank())editMessageDialog(messageId,body) else showMessageDeleteOptions(messageId,mine)}
+                else->showMessageDeleteOptions(messageId,mine)
+            }
+        }.show()
     }
     private fun renderConversationMessage(obj:JSONObject) {
         if(obj.optString("deletedAt").isNotBlank()) {
@@ -754,9 +1130,19 @@ class MainActivity : FragmentActivity() {
         val messageId=obj.optString("id")
         if(messageId.isNotBlank()){
             card.addView(action("Reaccionar  👍  ❤️  😂  🔥"){showMessageReactions(messageId)})
-            card.setOnLongClickListener{showMessageDeleteOptions(messageId,mine);true}
+            card.setOnLongClickListener{showMessageActions(obj,mine);true}
             card.contentDescription="Mantén presionado para ver opciones de este mensaje"
         }
+    }
+    private fun editMessageDialog(messageId:String,original:String) {
+        val input=field("Editar mensaje")
+        input.setText(original)
+        AlertDialog.Builder(this).setTitle("Editar mensaje").setView(input)
+            .setNegativeButton("Cancelar",null).setPositiveButton("Guardar"){_,_->
+                val value=input.text.toString().trim()
+                if(value.isBlank()){toast("El mensaje no puede quedar vacío");return@setPositiveButton}
+                api("PATCH","/api/messages/$messageId",JSONObject().put("text",value),{toast("Mensaje actualizado");refreshConversationMessages()},{toast("No se pudo editar: $it")})
+            }.show()
     }
     private fun showMessageDeleteOptions(messageId:String,mine:Boolean) {
         val options=if(mine) arrayOf("Eliminar para mí","Eliminar para todos") else arrayOf("Eliminar para mí")
@@ -899,7 +1285,14 @@ class MainActivity : FragmentActivity() {
         content.addView(name);content.addView(about);content.addView(avatar)
         content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
         content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
-        content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";getSharedPreferences("chatpro",MODE_PRIVATE).edit().remove("token").apply();socket?.disconnect();showAuth()},{header.text=it})})
+        content.addView(action("Cerrar sesión"){
+            val fcmToken=getSharedPreferences("chatpro",MODE_PRIVATE).getString("fcm_token","")?:""
+            val logoutAction={
+                api("POST","/api/logout",JSONObject(),{token="";clearSecureToken();socket?.disconnect();callSocket?.disconnect();showAuth()},{header.text=it})
+            }
+            if(fcmToken.isBlank())logoutAction()
+            else api("DELETE","/api/push/devices/"+Uri.encode(fcmToken),null,{logoutAction()},{logoutAction()})
+        })
         content.addView(action("Vincular correo electrónico a esta cuenta"){showLinkEmailDialog()})
         content.addView(action("Cambiar contraseña"){showChangePasswordDialog()})
         content.addView(action("Personalizar apariencia"){showAppearance()})
@@ -1101,7 +1494,7 @@ class MainActivity : FragmentActivity() {
     private fun field(hint:String)=EditText(this).apply{
         this.hint=hint;setHintTextColor(Color.LTGRAY);setTextColor(Color.WHITE)
         setPadding(16,12,16,12);minHeight=56;textSize=16f
-        setBackground(GradientDrawable().apply{setColor(Color.argb(235,25,30,49));cornerRadius=18f;setStroke(1,Color.rgb(85,96,128))})
+        setBackground(GradientDrawable().apply{setColor(Color.argb(245,32,44,51));cornerRadius=18f;setStroke(1,Color.rgb(65,82,91))})
     }
     private fun action(label:String,click:()->Unit)=Button(this).apply{
         text=label;setTextColor(Color.WHITE);textSize=15f;isAllCaps=false;minHeight=54
@@ -1109,7 +1502,7 @@ class MainActivity : FragmentActivity() {
         stateListAnimator=null
         val edge=Color.argb(125,Color.red(accent),Color.green(accent),Color.blue(accent))
         val shape=GradientDrawable().apply{
-            setColor(Color.argb(238,29,35,55))
+            setColor(Color.argb(245,32,44,51))
             cornerRadius=18f
             setStroke(1,edge)
         }
@@ -1119,7 +1512,7 @@ class MainActivity : FragmentActivity() {
     }
     private fun note(value:String)=TextView(this).apply{
         text=value;textSize=14f;setTextColor(Color.WHITE);setPadding(15,13,15,13)
-        setBackground(GradientDrawable().apply{setColor(Color.argb(235,29,35,55));cornerRadius=18f;setStroke(1,Color.argb(115,Color.red(accent),Color.green(accent),Color.blue(accent)))})
+        setBackground(GradientDrawable().apply{setColor(Color.argb(245,32,44,51));cornerRadius=18f;setStroke(1,Color.argb(115,Color.red(accent),Color.green(accent),Color.blue(accent)))})
         val lp=LinearLayout.LayoutParams(-1,-2);lp.setMargins(2,5,2,7);layoutParams=lp
     }
     private fun toast(value:String)=Toast.makeText(this,value,Toast.LENGTH_LONG).show()

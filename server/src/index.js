@@ -6,28 +6,115 @@ import fs from "node:fs";
 import { Server } from "socket.io";
 import multer from "multer";
 import { resolveUploadExtension, isSupportedUpload, uploadMimeForExtension } from "./upload-policy.js";
-import { randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomUUID, scryptSync, timingSafeEqual, createHmac } from "node:crypto";
 import * as db from "./db.js";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 
 const app=express(), server=http.createServer(app);
 const PORT=Number(process.env.PORT||10000);
-const MAX_UPLOAD_BYTES=Number(process.env.MAX_UPLOAD_BYTES||512*1024*1024);
+const MAX_UPLOAD_BYTES=Number(process.env.MAX_UPLOAD_BYTES||100*1024*1024);
 const uploadDir=process.env.UPLOAD_DIR||path.resolve("uploads");
 fs.mkdirSync(uploadDir,{recursive:true});
 const clean=(s,max=80)=>typeof s==="string"?s.trim().slice(0,max):"";
 const member=async (conversationId,uid)=>db.isMember(conversationId,uid);
+const memberRole=async (conversationId,uid)=>{
+ const {data,error}=await db.supabase.from("conversation_members").select("role")
+  .eq("conversation_id",conversationId).eq("user_id",uid).maybeSingle();
+ if(error)throw error;
+ return data?.role||null;
+};
+const isGroupManager=role=>["owner","admin","moderator"].includes(role);
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
+// Per-process authentication throttling. Production multi-instance deployments should
+// additionally enforce a shared limit at the edge or in a shared store.
+const authAttempts=new Map();
+function authRateLimit(bucket,limit=8,windowMs=15*60*1000){
+ return (req,res,next)=>{
+  const key=bucket+":"+String(req.ip||req.socket.remoteAddress||"unknown");
+  const now=Date.now(),entry=authAttempts.get(key);
+  if(!entry||now-entry.start>=windowMs){authAttempts.set(key,{start:now,count:1});return next();}
+  if(entry.count>=limit)return res.status(429).json({error:"Demasiados intentos. Espera 15 minutos e inténtalo de nuevo."});
+  entry.count++;next();
+ };
+}
 app.use(cors({origin:process.env.CORS_ORIGIN?.split(",")||"*"}));
 app.use(express.json({limit:"2mb"}));
+// Keep Render's process healthy while Supabase credentials are pending, but
+// fail closed for every data/API route until the backend is fully configured.
+app.use((req,res,next)=>{
+ if(req.path==="/health" || db.isConfigured)return next();
+ return res.status(503).json({
+  error:"CHAT PRO está en línea, pero el backend aún no está configurado.",
+  missingConfiguration:db.missingConfig
+ });
+});
+let firebaseMessaging=null;
+function getFirebaseMessaging(){
+ if(firebaseMessaging)return firebaseMessaging;
+ const raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON||"";
+ if(!raw)return null;
+ try{
+  const account=JSON.parse(raw);
+  if(account.private_key)account.private_key=account.private_key.replace(/\\n/g,"\n");
+  const app=getApps().find(item=>item.name==="chat-pro-fcm")||
+   initializeApp({credential:cert(account)},"chat-pro-fcm");
+  firebaseMessaging=getMessaging(app);
+  return firebaseMessaging;
+ }catch(error){
+  console.error("CHAT PRO FCM configuration invalid:",error.message);
+  return null;
+ }
+}
+async function sendPushToUser(userId,title,body,data={}){
+ const messaging=getFirebaseMessaging();
+ if(!messaging)return;
+ const {data:devices,error}=await db.supabase.from("push_devices").select("fcm_token")
+  .eq("user_id",userId).eq("enabled",true);
+ if(error)throw error;
+ const tokens=(devices||[]).map(x=>x.fcm_token).filter(Boolean);
+ for(let i=0;i<tokens.length;i+=500){
+  const batch=tokens.slice(i,i+500);
+  const result=await messaging.sendEachForMulticast({
+   tokens:batch,notification:{title:String(title).slice(0,100),body:String(body).slice(0,180)},
+   data:Object.fromEntries(Object.entries(data).map(([key,value])=>[key,String(value??"")])),
+   android:{priority:"high"}
+  });
+  const invalid=[];
+  result.responses.forEach((item,index)=>{
+   if(!item.success&&["messaging/registration-token-not-registered","messaging/invalid-registration-token"].includes(item.error?.code))invalid.push(batch[index]);
+  });
+  if(invalid.length){
+   const {error:deleteError}=await db.supabase.from("push_devices").delete().in("fcm_token",invalid);
+   if(deleteError)console.error("CHAT PRO invalid FCM token cleanup failed:",deleteError.message);
+  }
+ }
+}
 const auth=asyncRoute(async(req,res,next)=>{
  const token=(req.headers.authorization||"").replace(/^Bearer\s+/i,"");
  const user=token?await db.getSessionUser(token):null;
  if(!user)return res.status(401).json({error:"Inicia sesión para continuar"});
  req.user=user;req.token=token;next();
 });
-app.get("/health",(_q,r)=>r.json({ok:true,service:"CHAT PRO",version:"2.1.0",database:"supabase",features:["accounts","direct-messages","groups","media","history","profiles","statuses-24h"]}));
+app.get("/health",(_q,r)=>r.status(200).json({ok:true,ready:db.isConfigured,service:"CHAT PRO",version:"2.2.0",database:db.isConfigured?"supabase":"pending-configuration",missingConfiguration:db.missingConfig,features:["accounts","direct-messages","groups","group-roles","media","history-pagination","per-user-read-receipts","profiles","statuses-24h","fcm-push","turn-ice-config"]}));
+app.get("/api/calls/ice-config",auth,asyncRoute(async(q,r)=>{
+ const iceServers=[
+  {urls:"stun:stun.l.google.com:19302"},
+  {urls:"stun:stun.cloudflare.com:3478"}
+ ];
+ const turnUrls=(process.env.TURN_URLS||"").split(",").map(x=>x.trim()).filter(Boolean);
+ const sharedSecret=process.env.TURN_SHARED_SECRET||"";
+ if(turnUrls.length&&sharedSecret){
+  const expires=Math.floor(Date.now()/1000)+3600;
+  const username=expires+":"+q.user.id;
+  const credential=createHmac("sha1",sharedSecret).update(username).digest("base64");
+  for(const url of turnUrls)iceServers.push({urls:url,username,credential});
+ }
+ r.set("Cache-Control","no-store").json({iceServers,turnAvailable:iceServers.some(x=>String(x.urls).startsWith("turn"))});
+}));
 
-app.post("/api/register",asyncRoute(async(q,r)=>{
+
+app.post("/api/register",authRateLimit("register"),asyncRoute(async(q,r)=>{
  const name=clean(q.body?.name,40),email=clean(q.body?.email,254).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
  if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)||password.length<8||password.length>128)return r.status(400).json({error:"Ingresa un nombre, un correo válido y una contraseña de 8 a 128 caracteres"});
  if(await db.findUserByEmail(email))return r.status(409).json({error:"Ese correo ya está registrado"});
@@ -38,7 +125,7 @@ app.post("/api/register",asyncRoute(async(q,r)=>{
  const token=randomUUID()+randomUUID();await db.createSession(token,id);
  r.status(201).json({token,user:db.publicUser(profile)});
 }));
-app.post("/api/login",asyncRoute(async(q,r)=>{
+app.post("/api/login",authRateLimit("login"),asyncRoute(async(q,r)=>{
  const email=clean(q.body?.email,254).toLowerCase(),password=typeof q.body?.password==="string"?q.body.password:"";
  const u=await db.findUserByEmail(email);
  if(!u||!u.salt||!u.hash)return r.status(401).json({error:"Correo o contraseña incorrectos"});
@@ -71,6 +158,23 @@ app.post("/api/me/password",auth,asyncRoute(async(q,r)=>{
  r.json({ok:true,message:"Contraseña actualizada. Las demás sesiones se cerraron."});
 }));
 app.get("/api/me",auth,(q,r)=>r.json({user:db.publicUser(q.user)}));
+app.post("/api/push/devices",auth,asyncRoute(async(q,r)=>{
+ const fcmToken=typeof q.body?.fcmToken==="string"?q.body.fcmToken.trim():"";
+ if(fcmToken.length<50||fcmToken.length>4096)return r.status(400).json({error:"Token de notificaciones no válido"});
+ const {data,error}=await db.supabase.from("push_devices").upsert({
+  user_id:q.user.id,fcm_token:fcmToken,platform:"android",enabled:true,updated_at:new Date().toISOString()
+ },{onConflict:"fcm_token"}).select("id,enabled").single();
+ if(error)throw error;
+ r.status(201).json({ok:true,deviceId:data.id});
+}));
+app.delete("/api/push/devices/:token",auth,asyncRoute(async(q,r)=>{
+ const fcmToken=clean(q.params.token,4096);
+ if(!fcmToken)return r.status(400).json({error:"Token no válido"});
+ const {error}=await db.supabase.from("push_devices").delete().eq("user_id",q.user.id).eq("fcm_token",fcmToken);
+ if(error)throw error;
+ r.json({ok:true});
+}));
+
 app.patch("/api/me",auth,asyncRoute(async(q,r)=>{
  const updated=await db.updateUser(q.user.id,{name:clean(q.body?.name,40),about:clean(q.body?.about,140),avatarUrl:clean(q.body?.avatarUrl,500)});
  r.json({user:db.publicUser(updated)});
@@ -95,6 +199,12 @@ app.post("/api/conversations",auth,asyncRoute(async(q,r)=>{
  const room=q.body?.type==="room";
  const group=room||members.length>2||q.body?.type==="group";
  const visibility=room&&q.body?.visibility==="public"?"public":"private";
+ if(!group && members.length===2){
+  const other=members.find(x=>x!==q.user.id);
+  const {data:blocked,error:blockError}=await db.supabase.from("user_blocks").select("blocker_id,blocked_id").or(`and(blocker_id.eq.${q.user.id},blocked_id.eq.${other}),and(blocker_id.eq.${other},blocked_id.eq.${q.user.id})`);
+  if(blockError)throw blockError;
+  if((blocked||[]).length)return r.status(403).json({error:"No se puede iniciar esta conversación por la configuración de bloqueo"});
+ }
  const conversation=await db.createConversation({id:randomUUID(),type:room?"room":group?"group":"direct",title:clean(q.body?.title,60)||(group?"Nuevo grupo":"Chat privado"),members,createdBy:q.user.id,visibility,description:clean(q.body?.description,500)});
  r.status(201).json({conversation});
 }));
@@ -103,6 +213,18 @@ app.post("/api/rooms/:id/join",auth,asyncRoute(async(q,r)=>{
  const joined=await db.joinPublicRoom(q.params.id,q.user.id);
  if(!joined)return r.status(404).json({error:"La sala no existe o no es pública"});
  r.json({ok:true});
+}));
+app.patch("/api/messages/:id",auth,asyncRoute(async(q,r)=>{
+ const message=await db.getMessage(q.params.id);
+ if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
+ if(message.sender_id!==q.user.id)return r.sendStatus(403);
+ if(message.deleted_at)return r.status(409).json({error:"El mensaje ya fue eliminado"});
+ if(Date.now()-new Date(message.created_at).getTime()>48*60*60*1000)return r.status(403).json({error:"Ya pasó el plazo de 48 horas para editarlo"});
+ const body=typeof q.body?.text==="string"?q.body.text.trim():"";
+ if(!body||body.length>5000)return r.status(400).json({error:"El mensaje debe tener entre 1 y 5000 caracteres"});
+ const updated=await db.editMessage(message.id,q.user.id,body);
+ io.to(message.conversation_id).emit("message:edited",{messageId:message.id,text:updated.body});
+ r.json({ok:true,message:{id:updated.id,text:updated.body}});
 }));
 app.post("/api/messages/:id/delete",auth,asyncRoute(async(q,r)=>{
  const message=await db.getMessage(q.params.id);
@@ -140,15 +262,142 @@ app.post("/api/conversations/:id/read",auth,asyncRoute(async(q,r)=>{
  io.to(q.params.id).emit("conversation:read",{userId:q.user.id,readAt});
  r.json({ok:true,readAt});
 }));
+
+app.get("/api/conversations/:id/search",auth,asyncRoute(async(q,r)=>{
+ if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
+ const term=clean(q.query.q,100);
+ if(term.length<2)return r.json({messages:[]});
+ r.json({messages:await db.searchConversationMessages(q.params.id,q.user.id,term)});
+}));
+app.post("/api/messages/:id/forward",auth,asyncRoute(async(q,r)=>{
+ const original=await db.getMessage(q.params.id);
+ const targetId=clean(q.body?.conversationId,80);
+ if(!original||!await member(original.conversation_id,q.user.id)||!await member(targetId,q.user.id))return r.sendStatus(404);
+ if(original.deleted_at)return r.status(409).json({error:"No se puede reenviar un mensaje eliminado"});
+ const target=await db.getConversation(targetId);
+ if(!target)return r.sendStatus(404);
+ if(target.type==="direct"){
+  const {data:targetMembers,error:membersError}=await db.supabase.from("conversation_members").select("user_id").eq("conversation_id",targetId);
+  if(membersError)throw membersError;
+  const other=(targetMembers||[]).map(x=>x.user_id).find(id=>id!==q.user.id);
+  if(other){
+   const {data:blocked,error:blockError}=await db.supabase.from("user_blocks").select("blocker_id,blocked_id")
+    .or(`and(blocker_id.eq.${q.user.id},blocked_id.eq.${other}),and(blocker_id.eq.${other},blocked_id.eq.${q.user.id})`);
+   if(blockError)throw blockError;
+   if((blocked||[]).length)return r.status(403).json({error:"No se puede reenviar a esta conversación por la configuración de bloqueo"});
+  }
+ }
+ const {data:source,error}=await db.supabase.from("messages").select("body,media").eq("id",original.id).single();
+ if(error)throw error;
+ const forwarded=await db.createMessage({id:randomUUID(),conversationId:targetId,senderId:q.user.id,text:source.body||"",media:source.media||null});
+ io.to(targetId).emit("conversation:message",forwarded);
+ r.status(201).json({message:forwarded});
+}));
+app.post("/api/messages/:id/bookmark",auth,asyncRoute(async(q,r)=>{
+ const message=await db.getMessage(q.params.id);
+ if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
+ const pinned=q.body?.pinned===true;
+ const {data,error}=await db.supabase.from("message_bookmarks").upsert({user_id:q.user.id,message_id:message.id,is_pinned:pinned},{onConflict:"user_id,message_id"}).select().single();
+ if(error)throw error;
+ r.json({bookmark:data});
+}));
+app.delete("/api/messages/:id/bookmark",auth,asyncRoute(async(q,r)=>{
+ const message=await db.getMessage(q.params.id);
+ if(!message||!await member(message.conversation_id,q.user.id))return r.sendStatus(404);
+ const {error}=await db.supabase.from("message_bookmarks").delete().eq("user_id",q.user.id).eq("message_id",message.id);
+ if(error)throw error;r.json({ok:true});
+}));
+app.get("/api/bookmarks",auth,asyncRoute(async(q,r)=>{
+ const {data,error}=await db.supabase.from("message_bookmarks").select("is_pinned,created_at,messages(id,conversation_id,body,media,created_at)").eq("user_id",q.user.id).order("created_at",{ascending:false}).limit(300);
+ if(error)throw error;r.json({bookmarks:data||[]});
+}));
+app.post("/api/users/:id/block",auth,asyncRoute(async(q,r)=>{
+ const target=q.params.id;if(target===q.user.id||!await db.findUserById(target))return r.status(400).json({error:"Usuario no válido"});
+ const {error}=await db.supabase.from("user_blocks").upsert({blocker_id:q.user.id,blocked_id:target},{onConflict:"blocker_id,blocked_id"});
+ if(error)throw error;r.json({ok:true});
+}));
+app.delete("/api/users/:id/block",auth,asyncRoute(async(q,r)=>{
+ const {error}=await db.supabase.from("user_blocks").delete().eq("blocker_id",q.user.id).eq("blocked_id",q.params.id);
+ if(error)throw error;r.json({ok:true});
+}));
+app.post("/api/users/:id/report",auth,asyncRoute(async(q,r)=>{
+ const target=q.params.id,reason=clean(q.body?.reason,500);
+ if(target===q.user.id||!await db.findUserById(target)||reason.length<3)return r.status(400).json({error:"Selecciona un motivo válido"});
+ const {error}=await db.supabase.from("user_reports").insert({reporter_id:q.user.id,reported_id:target,reason});
+ if(error)throw error;r.status(201).json({ok:true});
+}));
+
 app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
  if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
- r.json({messages:await db.listMessages(q.params.id,q.user.id)});
+ const before=typeof q.query.before==="string"?q.query.before:null;
+ const limit=Math.max(1,Math.min(500,Number.parseInt(q.query.limit,10)||500));
+ r.json({messages:await db.listMessages(q.params.id,q.user.id,before,limit)});
+}));
+app.get("/api/conversations/:id/members",auth,asyncRoute(async(q,r)=>{
+ const c=await db.getConversation(q.params.id);
+ if(!c||!["group","room"].includes(c.type)||!await member(c.id,q.user.id))return r.sendStatus(404);
+ const {data:rows,error}=await db.supabase.from("conversation_members").select("user_id,role")
+  .eq("conversation_id",c.id);
+ if(error)throw error;
+ const members=[];
+ for(const row of rows||[]){
+  const profile=await db.findUserById(row.user_id);
+  if(profile)members.push({user:db.publicUser(profile),role:row.role||"member",});
+ }
+ r.json({members,canManage:isGroupManager(await memberRole(c.id,q.user.id)),isOwner:await memberRole(c.id,q.user.id)==="owner"});
 }));
 app.post("/api/conversations/:id/members",auth,asyncRoute(async(q,r)=>{
  const c=await db.getConversation(q.params.id);
- if(!c||!["group","room"].includes(c.type)||c.visibility!=="private"&&c.type==="room"||c.created_by!==q.user.id||!await member(c.id,q.user.id))return r.sendStatus(403);
- const uid=q.body?.userId;if(!uid||!await db.findUserById(uid))return r.status(404).json({error:"Usuario no encontrado"});
- await db.addConversationMember(c.id,uid);r.json({ok:true});
+ const role=c?await memberRole(c.id,q.user.id):null;
+ if(!c||!["group","room"].includes(c.type)||(c.type==="room"&&c.visibility!=="private")||!isGroupManager(role))return r.sendStatus(403);
+ const uid=clean(q.body?.userId,80);
+ if(!uid||!await db.findUserById(uid))return r.status(404).json({error:"Usuario no encontrado"});
+ await db.addConversationMember(c.id,uid);
+ r.status(201).json({ok:true,role:"member"});
+}));
+app.delete("/api/conversations/:id/members/:userId",auth,asyncRoute(async(q,r)=>{
+ const c=await db.getConversation(q.params.id);
+ const actorRole=c?await memberRole(c.id,q.user.id):null;
+ const targetId=clean(q.params.userId,80);
+ const targetRole=c?await memberRole(c.id,targetId):null;
+ if(!c||!["group","room"].includes(c.type)||!actorRole||!targetRole)return r.sendStatus(404);
+ const selfLeaving=targetId===q.user.id;
+ if(!selfLeaving&&!isGroupManager(actorRole))return r.sendStatus(403);
+ if(targetRole==="owner")return r.status(409).json({error:"Transfiere la propiedad antes de retirar al propietario"});
+ if(!selfLeaving&&actorRole==="moderator"&&targetRole!=="member")return r.sendStatus(403);
+ const {error}=await db.supabase.from("conversation_members").delete()
+  .eq("conversation_id",c.id).eq("user_id",targetId);
+ if(error)throw error;
+ io.to(c.id).emit("conversation:member_removed",{conversationId:c.id,userId:targetId,removedBy:q.user.id});
+ r.json({ok:true});
+}));
+app.patch("/api/conversations/:id/owner",auth,asyncRoute(async(q,r)=>{
+ const c=await db.getConversation(q.params.id);
+ if(!c||!["group","room"].includes(c.type)||await memberRole(c.id,q.user.id)!=="owner")return r.sendStatus(403);
+ const nextOwner=clean(q.body?.userId,80);
+ if(!nextOwner||nextOwner===q.user.id||!await member(c.id,nextOwner))return r.status(400).json({error:"Selecciona otro integrante del grupo"});
+ const {error:promoteError}=await db.supabase.from("conversation_members").update({role:"owner"})
+  .eq("conversation_id",c.id).eq("user_id",nextOwner);
+ if(promoteError)throw promoteError;
+ const {error:demoteError}=await db.supabase.from("conversation_members").update({role:"admin"})
+  .eq("conversation_id",c.id).eq("user_id",q.user.id);
+ if(demoteError)throw demoteError;
+ io.to(c.id).emit("conversation:owner_changed",{conversationId:c.id,previousOwner:q.user.id,newOwner:nextOwner});
+ r.json({ok:true,newOwnerId:nextOwner});
+}));
+app.patch("/api/conversations/:id/members/:userId/role",auth,asyncRoute(async(q,r)=>{
+ const c=await db.getConversation(q.params.id);
+ if(!c||!["group","room"].includes(c.type)||await memberRole(c.id,q.user.id)!=="owner")return r.sendStatus(403);
+ const targetId=clean(q.params.userId,80),nextRole=q.body?.role;
+ if(!["admin","moderator","member"].includes(nextRole))return r.status(400).json({error:"Rol no válido"});
+ const targetRole=await memberRole(c.id,targetId);
+ if(!targetRole)return r.sendStatus(404);
+ if(targetRole==="owner")return r.status(409).json({error:"Transfiere la propiedad antes de cambiar el rol del propietario"});
+ const {error}=await db.supabase.from("conversation_members").update({role:nextRole})
+  .eq("conversation_id",c.id).eq("user_id",targetId);
+ if(error)throw error;
+ io.to(c.id).emit("conversation:member_role",{conversationId:c.id,userId:targetId,role:nextRole});
+ r.json({ok:true,role:nextRole});
 }));
 
 app.get("/api/statuses",auth,asyncRoute(async(q,r)=>{
@@ -269,7 +518,19 @@ function finishCall(callId,event="call:ended",reason="ended"){
 
 io.on("connection",socket=>{
  const user=socket.data.user;
- if(user){socket.join("user:"+user.id);db.updateLastSeen(user.id).catch(console.error);io.emit("presence:changed",{userId:user.id,online:true});}
+ if(user){
+  socket.join("user:"+user.id);
+  db.updateLastSeen(user.id).catch(console.error);
+  io.emit("presence:changed",{userId:user.id,online:true});
+  // Re-deliver a pending call after FCM wakes the app and its socket reconnects.
+  for(const call of activeCalls.values()){
+   if(call.calleeId===user.id&&!call.accepted){
+    db.findUserById(call.callerId).then(caller=>{
+     if(caller)socket.emit("call:incoming",{callId:call.callId,conversationId:call.conversationId,mediaType:call.mediaType,fromUser:db.publicUser(caller)});
+    }).catch(error=>console.error("CHAT PRO pending call lookup failed:",error.message));
+   }
+  }
+ }
 
  socket.on("call:start",async payload=>{
   try{
@@ -290,13 +551,15 @@ io.on("connection",socket=>{
     socket.emit("call:error",{message:"Uno de los usuarios ya está en otra llamada"});return;
    }
    const targetSockets=await io.in("user:"+toUserId).fetchSockets();
-   if(!targetSockets.length){socket.emit("call:unavailable",{message:"La otra persona no está conectada en CHAT PRO"});return;}
    const callId=randomUUID();
    const call={callId,conversationId,callerId:user.id,calleeId:toUserId,mediaType,accepted:false,timer:null};
    call.timer=setTimeout(()=>finishCall(callId,"call:ended","no-answer"),45000);
    call.timer.unref?.();
    activeCalls.set(callId,call);userCalls.set(user.id,callId);userCalls.set(toUserId,callId);
    io.to("user:"+toUserId).emit("call:incoming",{callId,conversationId,mediaType,fromUser:db.publicUser(user)});
+   if(!targetSockets.length)sendPushToUser(toUserId,"Llamada entrante",user.name||user.username||"Te están llamando",{
+    type:"call",callId,conversationId,mediaType
+   }).catch(error=>console.error("CHAT PRO call push failed:",error.message));
    socket.emit("call:started",{callId,conversationId,mediaType});
   }catch(error){console.error("call:start",error);socket.emit("call:error",{message:"No se pudo iniciar la llamada"});}
  });
@@ -344,14 +607,26 @@ io.on("connection",socket=>{
  });
  socket.on("conversation:send",async payload=>{
   try{const id=socket.data.conversationId;if(!user||!id||!await member(id,user.id)||!payload||typeof payload!=="object")return;
+   const {data:conversationMeta,error:conversationMetaError}=await db.supabase.from("conversations").select("type").eq("id",id).single();
+   if(conversationMetaError)throw conversationMetaError;
+   if(conversationMeta.type==="direct"){
+    const {data:members,error:membersError}=await db.supabase.from("conversation_members").select("user_id").eq("conversation_id",id);
+    if(membersError)throw membersError;
+    const peer=(members||[]).map(x=>x.user_id).find(x=>x!==user.id);
+    if(peer){
+     const {data:blocks,error:blockError}=await db.supabase.from("user_blocks").select("blocker_id").or(`and(blocker_id.eq.${user.id},blocked_id.eq.${peer}),and(blocker_id.eq.${peer},blocked_id.eq.${user.id})`);
+     if(blockError)throw blockError;
+     if((blocks||[]).length){socket.emit("chat:error",{message:"No puedes enviar mensajes por la configuración de bloqueo"});return;}
+    }
+   }
    const text=clean(payload.text,4000);let media=null;
    if(payload.media&&typeof payload.media==="object"){const m=payload.media,p=clean(m.downloadPath,500);if(!p.startsWith("/api/uploads/"))return;media={name:clean(m.name,180)||"Archivo",mimeType:clean(m.mimeType,100)||"application/octet-stream",size:Number(m.size)||0,downloadPath:p}}
    if(!text&&!media)return;
    const item=await db.createMessage({id:randomUUID(),conversationId:id,senderId:user.id,text,media});
    const activeSockets=await io.in(id).fetchSockets();
-   if(activeSockets.some(s=>s.data.user?.id&&s.data.user.id!==user.id)){
-    await db.markMessageDelivered(item.id,id,user.id);item.deliveredAt=new Date().toISOString();
-   }
+   const recipients=[...new Set(activeSockets.map(s=>s.data.user?.id).filter(uid=>uid&&uid!==user.id))];
+   for(const recipientId of recipients)await db.markMessageDelivered(item.id,id,recipientId);
+   if(recipients.length)item.deliveredAt=new Date().toISOString();
    io.to(id).emit("conversation:message",item);
    // Notify every other member through their authenticated user socket room.
    const {data:roomMembers,error:memberError}=await db.supabase.from("conversation_members").select("user_id").eq("conversation_id",id);
@@ -364,6 +639,10 @@ io.on("connection",socket=>{
      senderName:user.name||user.username||"Nuevo mensaje",
      preview:String(preview).slice(0,140)
     });
+    const recipientSockets=await io.in("user:"+memberRow.user_id).fetchSockets();
+    if(!recipientSockets.length)sendPushToUser(memberRow.user_id,user.name||user.username||"Nuevo mensaje",preview,{
+     type:"message",conversationId:id
+    }).catch(error=>console.error("CHAT PRO message push failed:",error.message));
    }
   }catch(e){socket.emit("chat:error",{message:"No se pudo enviar el mensaje"})}
  });

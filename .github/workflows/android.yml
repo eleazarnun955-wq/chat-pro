@@ -1,7 +1,7 @@
 name: Build CHAT PRO APK
 on:
   push:
-    branches: [ main, feature/email-only-registration, feature/calls-1.8.0, feature/chat-pro-1.9.0-unified ]
+    branches: [ main, feature/email-only-registration, feature/calls-1.8.0, feature/chat-pro-1.9.0-unified, chat-pro-2.0-free, chat-pro-2.0.1-independent, chat-pro-2.1.0-independent, chat-pro-2.2.0-independent ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -12,6 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install server dependencies
+        run: cd server && npm install --ignore-scripts --no-audit --no-fund
       - name: Validate CHAT PRO server JavaScript
         run: |
           node --check server/src/index.js
@@ -46,6 +51,11 @@ jobs:
           fi
       - name: Build signed release APK
         if: steps.signing.outputs.available == 'true'
+        env:
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
         run: gradle --no-daemon assembleRelease
       - name: Verify APK signature
         if: steps.signing.outputs.available == 'true'
@@ -57,16 +67,21 @@ jobs:
         if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: CHAT-PRO-release
+          name: CHAT-PRO-2.2.0-release
           path: app/build/outputs/apk/release/app-release.apk
           retention-days: 90
       - name: Build debug APK without signing secrets
         if: steps.signing.outputs.available != 'true'
+        env:
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
         run: gradle --no-daemon assembleDebug
       - name: Upload debug APK
         if: steps.signing.outputs.available != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: CHAT-PRO-debug
+          name: CHAT-PRO-2.2.0-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 90
