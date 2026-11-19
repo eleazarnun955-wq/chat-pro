@@ -485,7 +485,10 @@ class MainActivity : FragmentActivity() {
         }
         root.addView(action("🔎 Buscar dentro de esta conversación"){searchConversationDialog(id)})
         root.addView(action("Cambiar fondo de este chat"){chooseWallpaper("chat_wallpaper_"+id)})
-        root.addView(action("Agregar integrante al grupo o sala privada"){addConversationMemberDialog(id)})
+        if(conversationType=="group"||conversationType=="room") {
+            root.addView(action("👥 Administrar grupo y miembros"){manageConversationMembers(id)})
+            root.addView(action("＋ Agregar integrante"){addConversationMemberDialog(id)})
+        }
         root.addView(action("⭐ Ver favoritos y mensajes fijados"){showSavedMessages()})
         root.addView(action("🧹 Limpiar historial"){confirmClearConversationHistory(id)})
         applyWallpaper("chat_wallpaper_"+id)
@@ -568,9 +571,52 @@ class MainActivity : FragmentActivity() {
                 },{toast("No se pudo limpiar el historial: $it")})
             }.show()
     }
+    private fun manageConversationMembers(conversationId:String) {
+        api("GET","/api/conversations/$conversationId/members",null,{data->
+            val arr=data.optJSONArray("members")?:JSONArray()
+            if(arr.length()==0){toast("No hay integrantes para mostrar");return@api}
+            val labels=(0 until arr.length()).map{index->
+                val row=arr.optJSONObject(index)?:JSONObject()
+                val user=row.optJSONObject("user")?:JSONObject()
+                val role=row.optString("role","member")
+                val suffix=when(role){"owner"->" · Propietario";"admin"->" · Administrador";"moderator"->" · Moderador";else->" · Miembro"}
+                user.optString("name","Usuario")+suffix
+            }.toTypedArray()
+            AlertDialog.Builder(this).setTitle("Integrantes del grupo").setItems(labels){_,which->
+                val row=arr.optJSONObject(which)?:return@setItems
+                val user=row.optJSONObject("user")?:return@setItems
+                val userId=user.optString("id")
+                val role=row.optString("role","member")
+                val isSelf=userId==me.optString("id")
+                val canManage=data.optBoolean("canManage")
+                val isOwner=data.optBoolean("isOwner")
+                if(isSelf) {
+                    val actions=if(role=="owner") arrayOf("Cerrar") else arrayOf("Salir del grupo","Cerrar")
+                    AlertDialog.Builder(this).setTitle("Tu participación").setItems(actions){_,choice->
+                        if(choice==0&&role!="owner") {
+                            api("DELETE","/api/conversations/$conversationId/members/$userId",null,{toast("Saliste del grupo");showHome("Chats")},{toast(it)})
+                        }
+                    }.show()
+                } else if(canManage) {
+                    val actions=if(isOwner) arrayOf("Hacer administrador","Hacer moderador","Dejar como miembro","Quitar integrante","Cerrar")
+                        else arrayOf("Quitar integrante","Cerrar")
+                    AlertDialog.Builder(this).setTitle(user.optString("name","Integrante")).setItems(actions){_,choice->
+                        if(isOwner&&choice in 0..2) {
+                            val nextRole=when(choice){0->"admin";1->"moderator";else->"member"}
+                            api("PATCH","/api/conversations/$conversationId/members/$userId/role",JSONObject().put("role",nextRole),{toast("Rol actualizado")},{toast(it)})
+                        } else if((isOwner&&choice==3)||(!isOwner&&choice==0)) {
+                            AlertDialog.Builder(this).setMessage("¿Quitar a ${user.optString("name","este integrante")} del grupo?")
+                                .setNegativeButton("Cancelar",null)
+                                .setPositiveButton("Quitar"){_,_->api("DELETE","/api/conversations/$conversationId/members/$userId",null,{toast("Integrante retirado");manageConversationMembers(conversationId)},{toast(it)})}.show()
+                        }
+                    }.show()
+                }
+            }.setNegativeButton("Cerrar",null).show()
+        },{toast("No se pudo cargar el grupo: $it")})
+    }
     private fun addConversationMemberDialog(conversationId:String) {
         val username=field("Nombre de usuario a invitar")
-        AlertDialog.Builder(this).setTitle("Agregar integrante").setMessage("Solo el creador del grupo o sala puede agregar participantes.").setView(username)
+        AlertDialog.Builder(this).setTitle("Agregar integrante").setMessage("Los propietarios, administradores y moderadores autorizados pueden invitar integrantes.").setView(username)
             .setNegativeButton("Cancelar",null).setPositiveButton("Buscar e invitar"){_,_->
                 val term=username.text.toString().trim().removePrefix("@").lowercase()
                 if(!term.matches(Regex("[a-z0-9_.-]{3,24}"))){toast("Escribe un usuario válido");return@setPositiveButton}
