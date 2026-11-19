@@ -23,7 +23,7 @@
 
 ## Notificaciones y llamadas en segundo plano
 - Las notificaciones locales actuales funcionan mientras la app mantiene la conexión Socket.IO.
-- El esquema `push_devices` y los endpoints de registro de tokens están preparados, pero la entrega FCM real y el despertar de la app cerrada aún requieren integrar Firebase Messaging en Android, configurar un proyecto Firebase y las credenciales de envío en el backend.
+- Firebase Messaging ya está integrado en Android y Firebase Admin en el servidor. El registro del token del dispositivo y la entrega push para mensajes/llamadas están implementados; para activarlos hay que registrar en Firebase la app Android con paquete `com.djsebas.chatpro.v220`, añadir `FIREBASE_API_KEY`, `FIREBASE_APP_ID`, `FIREBASE_PROJECT_ID` y `FIREBASE_SENDER_ID` como secretos de GitHub Actions, y configurar `FIREBASE_SERVICE_ACCOUNT_JSON` en Render.
 - Las llamadas entrantes siguen requiriendo que el dispositivo receptor esté conectado; FCM para llamadas entrantes está pendiente.
 
 ## Configurar TURN (opcional, recomendado para redes restrictivas)
@@ -48,6 +48,6 @@ Esta migración crea tablas de tokens push y recibos individuales, y habilita ro
 - Compilación Android y pruebas de instalación en dos teléfonos; confirmar que 2.1.0 y 2.2.0 coexisten.
 - Aplicar migración y desplegar esta rama del backend en Render.
 - Pruebas reales de permisos, chats, grupos, medios, PIN/biometría y llamadas por Wi-Fi y datos móviles.
-- Integración completa de Firebase Cloud Messaging para mensajes y llamadas cuando la app está cerrada.
+- Configurar las credenciales Firebase indicadas y probar FCM en un teléfono con la app cerrada/forzada; la entrega push no puede activarse hasta que existan esas credenciales.
 - Configurar y probar un TURN real para redes restrictivas.
 - Firma release: configurar `CHAT_PRO_KEYSTORE_BASE64`, `CHAT_PRO_STORE_PASSWORD`, `CHAT_PRO_KEY_ALIAS` y `CHAT_PRO_KEY_PASSWORD` en GitHub Actions. Sin ellos se genera APK debug instalable.
