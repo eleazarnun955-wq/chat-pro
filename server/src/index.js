@@ -599,9 +599,9 @@ io.on("connection",socket=>{
    if(!text&&!media)return;
    const item=await db.createMessage({id:randomUUID(),conversationId:id,senderId:user.id,text,media});
    const activeSockets=await io.in(id).fetchSockets();
-   if(activeSockets.some(s=>s.data.user?.id&&s.data.user.id!==user.id)){
-    await db.markMessageDelivered(item.id,id,user.id);item.deliveredAt=new Date().toISOString();
-   }
+   const recipients=[...new Set(activeSockets.map(s=>s.data.user?.id).filter(uid=>uid&&uid!==user.id))];
+   for(const recipientId of recipients)await db.markMessageDelivered(item.id,id,recipientId);
+   if(recipients.length)item.deliveredAt=new Date().toISOString();
    io.to(id).emit("conversation:message",item);
    // Notify every other member through their authenticated user socket room.
    const {data:roomMembers,error:memberError}=await db.supabase.from("conversation_members").select("user_id").eq("conversation_id",id);
