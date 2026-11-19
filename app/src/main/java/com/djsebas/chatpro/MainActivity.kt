@@ -44,6 +44,8 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : FragmentActivity() {
     private val bg=Color.rgb(17,27,33)
@@ -304,6 +306,21 @@ class MainActivity : FragmentActivity() {
             "Llamadas"->showCalls()
             "Salas"->showPublicRooms()
             "Perfil"->showProfile()
+        }
+    }
+    private fun registerPushToken() {
+        if(token.isBlank()||FirebaseApp.getApps(this).isEmpty())return
+        try {
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                if(!task.isSuccessful)return@addOnCompleteListener
+                val fcmToken=task.result?:return@addOnCompleteListener
+                getSharedPreferences("chatpro",MODE_PRIVATE).edit().putString("fcm_token",fcmToken).apply()
+                api("POST","/api/push/devices",JSONObject().put("fcmToken",fcmToken),{},{error->
+                    android.util.Log.w("CHATPRO-PUSH","No se pudo registrar el dispositivo: $error")
+                })
+            }
+        } catch(error:Exception) {
+            android.util.Log.w("CHATPRO-PUSH","Firebase Messaging no está configurado",error)
         }
     }
     private fun showCalls() {
@@ -1263,7 +1280,14 @@ class MainActivity : FragmentActivity() {
         content.addView(name);content.addView(about);content.addView(avatar)
         content.addView(action("Subir foto de perfil"){uploadMode="avatar";val pick=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="image/*"};startActivityForResult(pick,43)})
         content.addView(action("Guardar perfil"){api("PATCH","/api/me",JSONObject().put("name",name.text.toString()).put("about",about.text.toString()).put("avatarUrl",avatar.text.toString()),{me=it.optJSONObject("user")?:me;toast("Perfil actualizado");showHome("Perfil")},{header.text=it})})
-        content.addView(action("Cerrar sesión"){api("POST","/api/logout",JSONObject(),{token="";clearSecureToken();socket?.disconnect();showAuth()},{header.text=it})})
+        content.addView(action("Cerrar sesión"){
+            val fcmToken=getSharedPreferences("chatpro",MODE_PRIVATE).getString("fcm_token","")?:""
+            val logoutAction={
+                api("POST","/api/logout",JSONObject(),{token="";clearSecureToken();socket?.disconnect();callSocket?.disconnect();showAuth()},{header.text=it})
+            }
+            if(fcmToken.isBlank())logoutAction()
+            else api("DELETE","/api/push/devices/"+Uri.encode(fcmToken),null,{logoutAction()},{logoutAction()})
+        })
         content.addView(action("Vincular correo electrónico a esta cuenta"){showLinkEmailDialog()})
         content.addView(action("Cambiar contraseña"){showChangePasswordDialog()})
         content.addView(action("Personalizar apariencia"){showAppearance()})
