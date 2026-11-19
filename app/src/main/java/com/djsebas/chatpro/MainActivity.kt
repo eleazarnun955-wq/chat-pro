@@ -1183,13 +1183,32 @@ class MainActivity : FragmentActivity() {
         val author=user.optString("name","Usuario")
         val authorId=user.optString("id")
         val mine=authorId.isNotBlank() && authorId==me.optString("id")
-        val options=mutableListOf("😊 Reaccionar")
-        if(!mine && authorId.isNotBlank()) options.add("💬 Enviar mensaje privado")
+        val options=mutableListOf("↗ Compartir mensaje")
+        val actions=mutableListOf<()->Unit>()
+        actions.add {
+            val text=obj.optString("text")
+            val media=obj.optJSONObject("media")
+            if(text.isNotBlank()) {
+                val share=Intent(Intent.ACTION_SEND).apply {
+                    type="text/plain"
+                    putExtra(Intent.EXTRA_TEXT,"$author: $text")
+                }
+                startActivity(Intent.createChooser(share,"Compartir mensaje"))
+            } else if(media!=null) {
+                showTappedMessageActions(obj)
+            } else {
+                toast("Este mensaje no contiene contenido para compartir")
+            }
+        }
+        if(!mine && authorId.isNotBlank()) {
+            options.add("✉ Enviar mensaje privado")
+            actions.add { createConversation(authorId,author,false) }
+        }
+        options.add("🗑 Borrar mensaje")
+        actions.add { showMessageDeleteOptions(messageId,mine) }
         AlertDialog.Builder(this).setTitle("Mensaje de $author")
-            .setItems(options.toTypedArray()){_,which->
-                if(which==0) showMessageReactions(messageId)
-                else if(which==1 && authorId.isNotBlank() && authorId!=me.optString("id")) createConversation(authorId,author,false)
-            }.setNegativeButton("Cancelar",null).show()
+            .setItems(options.toTypedArray()){_,which->actions[which].invoke()}
+            .setNegativeButton("Cancelar",null).show()
     }
     private fun renderConversationMessage(obj:JSONObject) {
         if(obj.optString("deletedAt").isNotBlank()) {
