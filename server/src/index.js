@@ -8,6 +8,7 @@ import multer from "multer";
 import { resolveUploadExtension, isSupportedUpload, uploadMimeForExtension } from "./upload-policy.js";
 import { randomUUID, scryptSync, timingSafeEqual, createHmac } from "node:crypto";
 import * as db from "./db.js";
+import admin from "firebase-admin";
 
 const app=express(), server=http.createServer(app);
 const PORT=Number(process.env.PORT||10000);
@@ -38,6 +39,47 @@ function authRateLimit(bucket,limit=8,windowMs=15*60*1000){
 }
 app.use(cors({origin:process.env.CORS_ORIGIN?.split(",")||"*"}));
 app.use(express.json({limit:"2mb"}));
+let firebaseMessaging=null;
+function getFirebaseMessaging(){
+ if(firebaseMessaging)return firebaseMessaging;
+ const raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON||"";
+ if(!raw)return null;
+ try{
+  const account=JSON.parse(raw);
+  if(account.private_key)account.private_key=account.private_key.replace(/\\n/g,"\n");
+  const app=admin.apps.find(item=>item.name==="chat-pro-fcm")||
+   admin.initializeApp({credential:admin.credential.cert(account)},"chat-pro-fcm");
+  firebaseMessaging=admin.messaging(app);
+  return firebaseMessaging;
+ }catch(error){
+  console.error("CHAT PRO FCM configuration invalid:",error.message);
+  return null;
+ }
+}
+async function sendPushToUser(userId,title,body,data={}){
+ const messaging=getFirebaseMessaging();
+ if(!messaging)return;
+ const {data:devices,error}=await db.supabase.from("push_devices").select("fcm_token")
+  .eq("user_id",userId).eq("enabled",true);
+ if(error)throw error;
+ const tokens=(devices||[]).map(x=>x.fcm_token).filter(Boolean);
+ for(let i=0;i<tokens.length;i+=500){
+  const batch=tokens.slice(i,i+500);
+  const result=await messaging.sendEachForMulticast({
+   tokens:batch,notification:{title:String(title).slice(0,100),body:String(body).slice(0,180)},
+   data:Object.fromEntries(Object.entries(data).map(([key,value])=>[key,String(value??"")])),
+   android:{priority:"high"}
+  });
+  const invalid=[];
+  result.responses.forEach((item,index)=>{
+   if(!item.success&&["messaging/registration-token-not-registered","messaging/invalid-registration-token"].includes(item.error?.code))invalid.push(batch[index]);
+  });
+  if(invalid.length){
+   const {error:deleteError}=await db.supabase.from("push_devices").delete().in("fcm_token",invalid);
+   if(deleteError)console.error("CHAT PRO invalid FCM token cleanup failed:",deleteError.message);
+  }
+ }
+}
 const auth=asyncRoute(async(req,res,next)=>{
  const token=(req.headers.authorization||"").replace(/^Bearer\s+/i,"");
  const user=token?await db.getSessionUser(token):null;
@@ -115,8 +157,8 @@ app.post("/api/push/devices",auth,asyncRoute(async(q,r)=>{
  if(error)throw error;
  r.status(201).json({ok:true,deviceId:data.id});
 }));
-app.delete("/api/push/devices",auth,asyncRoute(async(q,r)=>{
- const fcmToken=typeof q.body?.fcmToken==="string"?q.body.fcmToken.trim():"";
+app.delete("/api/push/devices/:token",auth,asyncRoute(async(q,r)=>{
+ const fcmToken=clean(q.params.token,4096);
  if(!fcmToken)return r.status(400).json({error:"Token no válido"});
  const {error}=await db.supabase.from("push_devices").delete().eq("user_id",q.user.id).eq("fcm_token",fcmToken);
  if(error)throw error;
@@ -471,13 +513,15 @@ io.on("connection",socket=>{
     socket.emit("call:error",{message:"Uno de los usuarios ya está en otra llamada"});return;
    }
    const targetSockets=await io.in("user:"+toUserId).fetchSockets();
-   if(!targetSockets.length){socket.emit("call:unavailable",{message:"La otra persona no está conectada en CHAT PRO"});return;}
    const callId=randomUUID();
    const call={callId,conversationId,callerId:user.id,calleeId:toUserId,mediaType,accepted:false,timer:null};
    call.timer=setTimeout(()=>finishCall(callId,"call:ended","no-answer"),45000);
    call.timer.unref?.();
    activeCalls.set(callId,call);userCalls.set(user.id,callId);userCalls.set(toUserId,callId);
    io.to("user:"+toUserId).emit("call:incoming",{callId,conversationId,mediaType,fromUser:db.publicUser(user)});
+   if(!targetSockets.length)sendPushToUser(toUserId,"Llamada entrante",user.name||user.username||"Te están llamando",{
+    type:"call",callId,conversationId,mediaType
+   }).catch(error=>console.error("CHAT PRO call push failed:",error.message));
    socket.emit("call:started",{callId,conversationId,mediaType});
   }catch(error){console.error("call:start",error);socket.emit("call:error",{message:"No se pudo iniciar la llamada"});}
  });
