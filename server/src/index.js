@@ -260,7 +260,9 @@ app.post("/api/users/:id/report",auth,asyncRoute(async(q,r)=>{
 
 app.get("/api/conversations/:id/messages",auth,asyncRoute(async(q,r)=>{
  if(!await member(q.params.id,q.user.id))return r.sendStatus(403);
- r.json({messages:await db.listMessages(q.params.id,q.user.id)});
+ const before=typeof q.query.before==="string"?q.query.before:null;
+ const limit=Math.max(1,Math.min(500,Number.parseInt(q.query.limit,10)||500));
+ r.json({messages:await db.listMessages(q.params.id,q.user.id,before,limit)});
 }));
 app.get("/api/conversations/:id/members",auth,asyncRoute(async(q,r)=>{
  const c=await db.getConversation(q.params.id);
